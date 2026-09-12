@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ticked needs access to your photos so you can upload a picture of your cinema ticket.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Ticked needs access to your camera so you can take a photo of your cinema ticket.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

@@ -10,18 +10,19 @@ dependencies:
   flutter:
     sdk: flutter
   google_fonts: ^8.2.1
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
-
-dev_dependencies:
-  flutter_launcher_icons: ^0.13.1
+  assets:
+    - assets/images/
 
 flutter_launcher_icons:
   ios: true
-  image_path: "assets/icons/app_logo.png"
+  image_path: "assets/images/app_logo.png"
