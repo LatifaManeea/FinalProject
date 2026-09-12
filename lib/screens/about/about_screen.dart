@@ -12,8 +12,8 @@ class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
   static const _developers = [
-    _Developer(name: 'Add your name', role: 'Interface & Device', linkedIn: 'linkedin.com/in/your-handle'),
-    _Developer(name: 'Add teammate\'s name', role: 'Backend & Data', linkedIn: 'linkedin.com/in/their-handle'),
+    _Developer(name: 'Abdullah Almaneea', role: 'Interface & Device', linkedIn: 'linkedin.com/in/your-handle'),
+    _Developer(name: 'Latifa Almaneea', role: 'Backend & Data', linkedIn: 'linkedin.com/in/their-handle'),
   ];
 
   @override
