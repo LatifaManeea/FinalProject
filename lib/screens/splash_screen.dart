@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
-import '../data/app_repository.dart';
+import '../services/database.dart';
 import '../widgets/brand_header.dart';
 import '../widgets/vignette_backdrop.dart';
 import 'auth/auth_flow.dart';
@@ -28,7 +28,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _route() async {
     final stopwatch = Stopwatch()..start();
-    final user = await appRepository.currentUser();
+    final user = await Database().getCurrentUser();
 
     // Keep the brand mark on screen for at least this long so the
     // splash reads as a moment, not a flicker, on the fast path.

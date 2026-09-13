@@ -30,21 +30,44 @@ class Database {
   /// the link and there is no session until it is clicked. The
   /// `profiles` row is created by the `on_auth_user_created` trigger
   /// from the [displayName] passed here.
+  ///
+  /// Signing up with an address that already exists does *not* throw —
+  /// Supabase answers as if it worked and quietly sends nothing, so
+  /// that a stranger cannot use this form to discover who has an
+  /// account. The screen shows "check your inbox" either way.
   Future<void> signUp(String email, String password, String displayName) async {
-    await supabase.auth.signUp(
-      email: email,
-      password: password,
-      data: {"display_name": displayName},
-    );
+    try {
+      await supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {"display_name": displayName},
+      );
+    } catch (error) {
+      throw readableAuthError(error);
+    }
+  }
+
+  /// Sends the confirmation email again — for when the first one never
+  /// arrived, or went to spam.
+  Future<void> resendConfirmation(String email) async {
+    try {
+      await supabase.auth.resend(type: OtpType.signup, email: email);
+    } catch (error) {
+      throw readableAuthError(error);
+    }
   }
 
   Future<AppUser> signIn(String email, String password) async {
-    final response = await supabase.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      final response = await supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
 
-    return getProfile(response.user!.id);
+      return await getProfile(response.user!.id);
+    } catch (error) {
+      throw readableAuthError(error);
+    }
   }
 
   Future<void> signOut() async {
@@ -52,7 +75,42 @@ class Database {
   }
 
   Future<void> sendPasswordReset(String email) async {
-    await supabase.auth.resetPasswordForEmail(email);
+    try {
+      await supabase.auth.resetPasswordForEmail(email);
+    } catch (error) {
+      throw readableAuthError(error);
+    }
+  }
+
+  /// Turns a Supabase failure into something worth showing a person.
+  ///
+  /// An [AuthException] prints as `AuthException(message: Invalid login
+  /// credentials, statusCode: 400, code: invalid_credentials)`, and the
+  /// auth screens put whatever is thrown straight into the error
+  /// banner. So each case the user can actually act on gets a sentence,
+  /// and anything unrecognised falls back to Supabase's own message
+  /// rather than being swallowed.
+  Exception readableAuthError(Object error) {
+    if (error is! AuthException) {
+      return Exception("Network error — check your connection and try again.");
+    }
+
+    switch (error.code) {
+      case "invalid_credentials":
+        return Exception("Incorrect email or password.");
+      case "email_not_confirmed":
+        return Exception("Confirm your email first — check your inbox for the link.");
+      case "user_already_exists":
+      case "email_exists":
+        return Exception("An account with that email already exists.");
+      case "weak_password":
+        return Exception("That password is too weak — try a longer one.");
+      case "over_email_send_rate_limit":
+      case "over_request_rate_limit":
+        return Exception("Too many attempts. Wait a minute, then try again.");
+      default:
+        return Exception(error.message);
+    }
   }
 
   /// The signed-in person, or null when the session has expired or the

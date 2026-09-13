@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
-import '../../data/app_repository.dart';
+import '../../services/database.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/vignette_backdrop.dart';
 import '../auth/auth_flow.dart';
@@ -23,7 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
 
   Future<void> _signOut() async {
-    await appRepository.signOut();
+    await Database().signOut();
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthFlow()),

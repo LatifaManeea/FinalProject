@@ -5,6 +5,7 @@ import '../../constants/app_typography.dart';
 import '../../data/app_repository.dart';
 import '../../models/app_user.dart';
 import '../../models/attendance.dart';
+import '../../services/database.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/vignette_backdrop.dart';
 import '../about/about_screen.dart';
@@ -35,7 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    final user = await appRepository.currentUser();
+    final user = await Database().getCurrentUser();
     final history = await appRepository.history();
     if (!mounted) return;
     setState(() {
