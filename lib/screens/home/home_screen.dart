@@ -4,30 +4,33 @@ import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
 import '../../data/app_repository.dart';
 import '../../models/attendance.dart';
-import '../../models/film.dart';
-import '../../widgets/film_poster_card.dart';
+import '../../models/cinema.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/vignette_backdrop.dart';
-import '../schedule/schedule_card_screen.dart';
 import '../ticket/upload_ticket_screen.dart';
 
-/// Proposal screen 5 — now showing in Riyadh, "Upload your ticket" as
-/// the primary action, and the most recent session.
+/// Proposal screen 5 — "Upload your ticket" as the primary action, the
+/// most recent session, and a shortcut into the Cinemas tab. The
+/// "now showing in Riyadh" carousel that used to sit at the bottom now
+/// lives there, one row per chain.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.onBrowseCinema});
+
+  /// Asks [MainShell] to open the Cinemas tab at one chain.
+  final ValueChanged<String> onBrowseCinema;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<Film>> _nowShowing;
+  late Future<List<Cinema>> _cinemas;
   late Future<List<Attendance>> _history;
 
   @override
   void initState() {
     super.initState();
-    _nowShowing = appRepository.nowShowing();
+    _cinemas = appRepository.cinemas();
     _history = appRepository.history();
   }
 
@@ -37,15 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openUploadTicket() async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const UploadTicketScreen()));
-    _refreshHistory();
-  }
-
-  Future<void> _openFilm(Film film) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ScheduleCardScreen(preselectedFilm: film),
-      ),
-    );
     _refreshHistory();
   }
 
@@ -61,10 +55,10 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: AppColors.surface,
             onRefresh: () async {
               setState(() {
-                _nowShowing = appRepository.nowShowing();
+                _cinemas = appRepository.cinemas();
                 _history = appRepository.history();
               });
-              await Future.wait([_nowShowing, _history]);
+              await Future.wait([_cinemas, _history]);
             },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
@@ -77,34 +71,67 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 30),
                 _MostRecentSession(historyFuture: _history),
                 const SizedBox(height: 30),
-                Text('NOW SHOWING IN RIYADH', style: AppTypography.overline),
+                Text('BROWSE BY CINEMA', style: AppTypography.overline),
                 const SizedBox(height: 12),
-                SizedBox(
-                  height: 190,
-                  child: FutureBuilder<List<Film>>(
-                    future: _nowShowing,
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(
+                FutureBuilder<List<Cinema>>(
+                  future: _cinemas,
+                  builder: (context, snapshot) {
+                    final cinemas = snapshot.data;
+                    if (cinemas == null) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
                           child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),
-                        );
-                      }
-                      final films = snapshot.data!;
-                      return ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: films.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 14),
-                        itemBuilder: (context, i) => FilmPosterCard(
-                          film: films[i],
-                          onTap: () => _openFilm(films[i]),
                         ),
                       );
-                    },
-                  ),
+                    }
+                    return Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final cinema in cinemas)
+                          _CinemaChip(
+                            label: cinema.name,
+                            onTap: () => widget.onBrowseCinema(cinema.name),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One chain, tapped to open the Cinemas tab scrolled to its row.
+class _CinemaChip extends StatelessWidget {
+  const _CinemaChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: AppTypography.label.copyWith(color: AppColors.textPrimary)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: AppColors.gold, size: 16),
+          ],
         ),
       ),
     );

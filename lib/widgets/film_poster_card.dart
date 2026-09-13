@@ -24,8 +24,11 @@ class FilmPosterCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AspectRatio(
-              aspectRatio: 2 / 3,
+            // Takes whatever height is left after the two text lines
+            // rather than claiming a fixed 2:3 of the width — the title
+            // and duration grow with the device's text scale, and a
+            // fixed poster made the column overflow its row.
+            Expanded(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: DecoratedBox(

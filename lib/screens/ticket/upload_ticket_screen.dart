@@ -55,6 +55,9 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
     setState(() => _isParsing = true);
     try {
       final parsed = await appTicketOcrService.parseTicketPhoto(photo.path);
+      // Null when the title read off the ticket matches nothing in
+      // `films` — the Schedule Card opens on the film picker instead of
+      // being handed a film that isn't the one on the ticket.
       final film = await appRepository.matchFilmByTitle(parsed.filmTitleGuess ?? '');
       if (!mounted) return;
       await Navigator.of(context).pushReplacement(
@@ -65,6 +68,19 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
             initialTicketTime: parsed.ticketTimeGuess,
             ocrConfidence: parsed.confidence,
           ),
+        ),
+      );
+    } on TicketOcrUnavailable catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$e'),
+          action: SnackBarAction(
+            label: 'Enter manually',
+            textColor: AppColors.gold,
+            onPressed: _enterManually,
+          ),
+          duration: const Duration(seconds: 6),
         ),
       );
     } finally {

@@ -15,27 +15,37 @@ class ParsedTicket {
   bool get isEmpty => filmTitleGuess == null && cinemaNameGuess == null && ticketTimeGuess == null;
 }
 
-/// Real implementation wraps `image_picker` + `google_mlkit_text_recognition`
-/// (on-device, no network) plus the fuzzy title match against
-/// [TickedRepository.matchFilmByTitle]. This fake stands in for both
-/// the OCR pass and the parsing so Upload Ticket → Schedule Card works
-/// end to end today.
+/// Thrown while scanning is not implemented. Carries the sentence the
+/// Upload Ticket screen shows, which points at manual entry — the path
+/// that does work, on real data.
+class TicketOcrUnavailable implements Exception {
+  const TicketOcrUnavailable();
+
+  @override
+  String toString() => 'Reading tickets from a photo isn\'t switched on yet — '
+      'enter the details manually and everything else works the same.';
+}
+
+/// The real implementation wraps `image_picker` +
+/// `google_mlkit_text_recognition` (on-device, no network) and matches
+/// the title it reads against [TickedRepository.matchFilmByTitle],
+/// which is already real and queries the `films` table.
 abstract class TicketOcrService {
   Future<ParsedTicket> parseTicketPhoto(String imagePath);
 }
 
-class FakeTicketOcrService implements TicketOcrService {
+/// Scanning is not built yet, and this says so rather than answering.
+///
+/// It replaces a stub that returned "The Odyssey" at VOX, 9pm, for
+/// every photo it was ever given — the app's last piece of invented
+/// data. A wrong answer that looks right is worse than no answer, so
+/// this path now refuses honestly and the photo buttons stay in place
+/// for when ML Kit is wired up.
+class UnavailableTicketOcrService implements TicketOcrService {
   @override
   Future<ParsedTicket> parseTicketPhoto(String imagePath) async {
-    await Future.delayed(const Duration(milliseconds: 1400));
-    final now = DateTime.now();
-    return ParsedTicket(
-      filmTitleGuess: 'The Odyssey',
-      cinemaNameGuess: 'VOX',
-      ticketTimeGuess: DateTime(now.year, now.month, now.day, 21, 0),
-      confidence: 0.82,
-    );
+    throw const TicketOcrUnavailable();
   }
 }
 
-final TicketOcrService appTicketOcrService = FakeTicketOcrService();
+final TicketOcrService appTicketOcrService = UnavailableTicketOcrService();

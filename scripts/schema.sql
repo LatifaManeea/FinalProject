@@ -15,7 +15,7 @@
 -- values already exist by hand, and there's no reliable way to match
 -- old rows to scraped ones by name alone. Cleaner to start the VOX
 -- branches fresh, entirely scraper-owned, than risk silently
--- duplicating branches. Muvi/Scene/Empire/Cinema House branches are
+-- duplicating branches. Muvi/Scene/Reel/Cinema House branches are
 -- reseeded exactly as they were (hand-entered placeholders) since
 -- those chains aren't being scraped yet.
 --
@@ -57,7 +57,7 @@ insert into cinemas (cinema_name, short_ad_minutes, long_ad_minutes) values
   ('VOX',          14, 11),
   ('Muvi',         18, 15),
   ('Scene',        12, 9),
-  ('Empire',       20, 16),
+  ('Reel',         20, 16),
   ('Cinema House', 16, 13);
 
 alter table cinemas enable row level security;
@@ -90,7 +90,7 @@ create table branches (
 insert into branches (cinema_name, branch_name, lat, lon) values
   ('Muvi',         'Panorama Mall',  24.6889, 46.6857),
   ('Scene',        'Localizer Mall', 24.8149, 46.6577),
-  ('Empire',       'Hayat Mall',     24.6963, 46.6845),
+  ('Reel',         'Hayat Mall',     24.6963, 46.6845),
   ('Cinema House', 'Granada Mall',   24.7605, 46.7998);
 
 -- Lets the scraper upsert a branch by VOX's own code instead of
@@ -148,9 +148,16 @@ create policy "films are updatable by any signed-in user"
 -- never a tmdb id — this table just now keys on film_id instead.
 
 create table breaks (
-  film_id   bigint not null references films(film_id) on delete cascade,
-  start_min integer not null,
-  end_min   integer not null,
+  film_id      bigint not null references films(film_id) on delete cascade,
+  start_min    integer not null,
+  end_min      integer not null,
+  -- False when Gemini knew this specific film's scenes, true when it
+  -- reasoned from the film's likely shape and pacing instead. The app
+  -- asks strictly first and only estimates when that declines, so this
+  -- records which of the two answers a row came from — and the
+  -- Schedule Card labels estimates rather than passing them off as
+  -- researched fact.
+  is_estimated boolean not null default false,
   primary key (film_id, start_min)
 );
 

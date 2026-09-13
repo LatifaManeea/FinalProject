@@ -11,16 +11,10 @@ import '../widgets/vignette_backdrop.dart';
 import 'auth/auth_flow.dart';
 import 'main_shell.dart';
 
-/// The first thing anyone sees: two searchlights swing in and settle on
-/// velvet house curtains, which part to reveal the brand the way a
-/// premiere puts a name in lights. It holds so there's time to actually
-/// read it, then the curtains sweep shut again — and open right back up
-/// on whichever screen comes next (see [CurtainPageRoute]), so the
-/// whole thing reads as one continuous motion rather than a splash
-/// effect bolted onto an unrelated page change. While it plays,
-/// [Database.getCurrentUser] checks whether Supabase still has a
-/// persisted session: signed-in goes straight to [MainShell], everyone
-/// else lands on [AuthFlow].
+/// Proposal screen 1 — checks the existing auth session and routes
+/// accordingly. `Database.getCurrentUser` answers from the session
+/// Supabase persists across launches, so a confirmed, signed-in person
+/// lands straight on the shell and everyone else on the auth flow.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 

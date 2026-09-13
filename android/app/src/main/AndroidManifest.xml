@@ -41,5 +41,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Required by url_launcher to open the cinema's own film page
+             in a browser. Since Android 11 an app cannot even see which
+             activities can handle a URL unless it declares the intent
+             here, so without this canLaunchUrl() answers false and the
+             "buy a ticket" link silently does nothing. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

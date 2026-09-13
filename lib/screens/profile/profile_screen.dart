@@ -5,7 +5,9 @@ import '../../constants/app_typography.dart';
 import '../../data/app_repository.dart';
 import '../../models/app_user.dart';
 import '../../models/attendance.dart';
+import '../../models/yearly_recap.dart';
 import '../../services/database.dart';
+import '../../widgets/history_section.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/vignette_backdrop.dart';
 import '../about/about_screen.dart';
@@ -27,7 +29,11 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   AppUser? _user;
-  List<Attendance> _history = [];
+
+  /// Null until the first load finishes, so [HistorySection] can tell
+  /// "still loading" apart from "nothing attended yet".
+  List<Attendance>? _history;
+  YearlyRecap? _recap;
 
   @override
   void initState() {
@@ -35,14 +41,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _load();
   }
 
+  /// History and recap come from the repository (in memory today) and
+  /// are shown as soon as they resolve. The signed-in profile is a
+  /// separate Supabase round trip that can hang or fail — it used to be
+  /// awaited first, which left the whole page, history included, on a
+  /// spinner for as long as that call took. It now loads after, and its
+  /// failure costs only the name and email.
   Future<void> _load() async {
-    final user = await Database().getCurrentUser();
     final history = await appRepository.history();
+    final recap = await appRepository.recap(DateTime.now().year);
     if (!mounted) return;
     setState(() {
-      _user = user;
       _history = history;
+      _recap = recap;
     });
+
+    try {
+      final user = await Database().getCurrentUser();
+      if (!mounted) return;
+      setState(() => _user = user);
+    } catch (_) {
+      // Not signed in, offline, or Supabase is unreachable. Everything
+      // above is already on screen.
+    }
   }
 
   Future<void> _editDisplayName() async {
@@ -75,78 +96,89 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _user;
-    final filmsWatched = _history.length;
-    final cinemasVisited = _history.map((a) => a.cinemaName).toSet().length;
+    final history = _history ?? const <Attendance>[];
+    final filmsWatched = history.length;
+    final cinemasVisited = history.map((a) => a.cinemaName).toSet().length;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: VignetteBackdrop(
         showVelvet: false,
         child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            children: [
-              Center(
-                child: Column(
-                  children: [
-                    Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 42,
-                          backgroundColor: AppColors.surface2,
-                          child: Text(
-                            (user?.displayName.isNotEmpty ?? false) ? user!.displayName[0].toUpperCase() : '?',
-                            style: AppTypography.displayLarge,
-                          ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(color: AppColors.gold, shape: BoxShape.circle),
-                            child: const Icon(Icons.edit, size: 14, color: AppColors.onGold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    GestureDetector(
-                      onTap: _editDisplayName,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+          child: RefreshIndicator(
+            color: AppColors.gold,
+            backgroundColor: AppColors.surface,
+            onRefresh: _load,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+              children: [
+                Center(
+                  child: Column(
+                    children: [
+                      Stack(
                         children: [
-                          Text(user?.displayName ?? '—', style: AppTypography.displayMedium),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.edit_outlined, size: 16, color: AppColors.textTertiary),
+                          CircleAvatar(
+                            radius: 42,
+                            backgroundColor: AppColors.surface2,
+                            child: Text(
+                              (user?.displayName.isNotEmpty ?? false) ? user!.displayName[0].toUpperCase() : '?',
+                              style: AppTypography.displayLarge,
+                            ),
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(color: AppColors.gold, shape: BoxShape.circle),
+                              child: const Icon(Icons.edit, size: 14, color: AppColors.onGold),
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(user?.email ?? '', style: AppTypography.bodySmall),
+                      const SizedBox(height: 14),
+                      GestureDetector(
+                        onTap: _editDisplayName,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(user?.displayName ?? '—', style: AppTypography.displayMedium),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.edit_outlined, size: 16, color: AppColors.textTertiary),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(user?.email ?? '', style: AppTypography.bodySmall),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 26),
+                Row(
+                  children: [
+                    StatTile(value: '$filmsWatched', label: 'FILMS WATCHED'),
+                    const SizedBox(width: 12),
+                    StatTile(value: '$cinemasVisited', label: 'CINEMAS VISITED'),
                   ],
                 ),
-              ),
-              const SizedBox(height: 26),
-              Row(
-                children: [
-                  StatTile(value: '$filmsWatched', label: 'FILMS WATCHED'),
-                  const SizedBox(width: 12),
-                  StatTile(value: '$cinemasVisited', label: 'CINEMAS VISITED'),
-                ],
-              ),
-              const SizedBox(height: 28),
-              _ProfileMenuRow(
-                icon: Icons.settings_outlined,
-                label: 'Settings',
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
-              ),
-              _ProfileMenuRow(
-                icon: Icons.info_outline,
-                label: 'About Us',
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
-              ),
-            ],
+                const SizedBox(height: 30),
+                // Not behind a button and not a tab — the recap and every
+                // attended screening are simply part of this page, right
+                // under the signed-in email.
+                HistorySection(history: _history, recap: _recap),
+                const SizedBox(height: 30),
+                _ProfileMenuRow(
+                  icon: Icons.settings_outlined,
+                  label: 'Settings',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                ),
+                _ProfileMenuRow(
+                  icon: Icons.info_outline,
+                  label: 'About Us',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
+                ),
+              ],
+            ),
           ),
         ),
       ),

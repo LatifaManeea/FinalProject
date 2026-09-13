@@ -171,14 +171,62 @@ def fetch_branch_ids(supabase_url: str, service_role_key: str) -> dict[str, int]
     return {row["source_code"]: row["branch_id"] for row in rows if row.get("source_code")}
 
 
+def normalise_branch_name(name: str) -> str:
+    """A branch name reduced to something two sources can agree on.
+
+    VOX prints "Riyadh Park - Riyadh"; the row in `branches` says
+    "Riyadh Park". Lowercase, drop anything after " - ", collapse
+    whitespace."""
+    return " ".join(name.split(" - ")[0].split()).casefold()
+
+
+def fetch_branch_ids_by_name(supabase_url: str, service_role_key: str) -> dict[str, int]:
+    """Fallback lookup for branches that have no source_code yet.
+
+    Matching on source_code is the right way round — codes are stable
+    and names are not — but it only works once someone has filled those
+    codes in, and until then EVERY showtime is skipped while the sync
+    still reports success. That failure is silent and it cost us a
+    while to spot.
+
+    So: match on the code when it's there, and fall back to the name
+    when it isn't. The fallback is deliberately narrow (VOX rows only,
+    normalised, and a name claimed by two rows is dropped rather than
+    guessed at) because a wrong branch here puts a screening at the
+    wrong cinema."""
+    rows = _select(
+        supabase_url, service_role_key, "branches", "cinema_name=eq.VOX&select=branch_id,branch_name"
+    )
+
+    by_name: dict[str, int] = {}
+    ambiguous: set[str] = set()
+
+    for row in rows:
+        key = normalise_branch_name(row["branch_name"])
+        if key in by_name:
+            ambiguous.add(key)
+        by_name[key] = row["branch_id"]
+
+    for key in ambiguous:
+        print(f"  ! two branches both normalise to {key!r} — matching neither by name.")
+        del by_name[key]
+
+    return by_name
+
+
 def build_showtime_rows(
     movies: list[Movie],
     film_id_by_slug: dict[str, int],
     branch_id_by_code: dict[str, int],
+    branch_id_by_name: dict[str, int] | None = None,
 ) -> tuple[list[dict], int]:
     """Returns (rows, skipped_count). A showtime is skipped if its film
     or branch didn't make it into the upsert responses above, or if the
-    time text couldn't be parsed into a real timestamp."""
+    time text couldn't be parsed into a real timestamp.
+
+    [branch_id_by_name] is the fallback for branch rows with no
+    source_code filled in — see fetch_branch_ids_by_name()."""
+    by_name = branch_id_by_name or {}
     rows = []
     skipped = 0
     for m in movies:
@@ -188,6 +236,8 @@ def build_showtime_rows(
             continue
         for st in m.showtimes_today:
             branch_id = branch_id_by_code.get(st.branch_code)
+            if branch_id is None:
+                branch_id = by_name.get(normalise_branch_name(st.branch))
             if branch_id is None or st.show_time_iso is None:
                 skipped += 1
                 continue
@@ -219,9 +269,20 @@ def sync(movies: list[Movie], supabase_url: str, service_role_key: str) -> None:
     # fetch_branch_ids()'s docstring for what happens when a scraped
     # branch code has no matching row here.
     branch_id_by_code = fetch_branch_ids(supabase_url, service_role_key)
-    print(f"Matched against {len(branch_id_by_code)} branch(es) already in the database.")
+    branch_id_by_name = fetch_branch_ids_by_name(supabase_url, service_role_key)
+    print(
+        f"Matched against {len(branch_id_by_code)} branch(es) by source_code, "
+        f"{len(branch_id_by_name)} available by name as a fallback."
+    )
+    if not branch_id_by_code and branch_id_by_name:
+        print(
+            "  note: no VOX branch has source/source_code set, so matching is "
+            "by name this run. Run --propose-branches to fill those in."
+        )
 
-    showtime_rows, skipped = build_showtime_rows(movies, film_id_by_slug, branch_id_by_code)
+    showtime_rows, skipped = build_showtime_rows(
+        movies, film_id_by_slug, branch_id_by_code, branch_id_by_name
+    )
     saved_showtimes = _upsert(
         supabase_url, service_role_key, "showtimes", showtime_rows, on_conflict="branch_id,source_booking_id"
     )
@@ -229,7 +290,69 @@ def sync(movies: list[Movie], supabase_url: str, service_role_key: str) -> None:
     print(f"Upserted {len(saved_showtimes)} showtimes.{note}")
 
 
+def print_proposed_branches(movies: list[Movie]) -> None:
+    """Prints the VOX branches today's scrape saw, as SQL you can read
+    before running.
+
+    This exists because `branches` is hand-managed on purpose: the
+    daily sync only ever reads it, so it can never invent a cinema
+    location. The catch is that until those rows exist, every scraped
+    showtime is skipped for want of a branch_id, and `showtimes` stays
+    empty while the sync still reports success.
+
+    So: this writes nothing. It shows what the scrape found, you check
+    the names are ones you want, and you run the SQL yourself. After
+    that the daily sync matches on source_code and fills showtimes.
+    """
+    rows = build_branch_rows(movies)
+
+    if not rows:
+        print("No Riyadh branches found in today's scrape — nothing to propose.")
+        return
+
+    print(f"-- {len(rows)} VOX branch(es) seen in today's scrape.")
+    print("-- These are UPDATEs, not INSERTs: the VOX branch rows already")
+    print("-- exist, they just have source/source_code left NULL, which is")
+    print("-- why fetch_branch_ids() matches none of them and every showtime")
+    print("-- is skipped. This fills in the two columns it matches on.")
+    print("--")
+    print("-- Match is on the branch name as VOX prints it, minus the trailing")
+    print("-- ' - Riyadh' — your rows are stored without it. CHECK the row")
+    print("-- counts: each statement should report UPDATE 1. UPDATE 0 means")
+    print("-- that branch isn't in your table under that name (add it by")
+    print("-- hand); UPDATE 2+ means two rows share a name.")
+    print()
+
+    for r in rows:
+        scraped = r["branch_name"]
+        # VOX prints "Riyadh Park - Riyadh"; the stored rows are just
+        # "Riyadh Park", so match on the part before the separator.
+        stem = scraped.split(" - ")[0].strip()
+        # % and _ are wildcards in LIKE, and a branch name could
+        # legitimately contain either.
+        escaped = stem.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_").replace("'", "''")
+
+        print(f"-- VOX calls this \"{scraped}\"")
+        print(
+            "update branches set source = '{}', source_code = '{}'\n"
+            "where cinema_name = '{}' and branch_name ilike '{}%';".format(
+                r["source"], r["source_code"], r["cinema_name"], escaped
+            )
+        )
+        print()
+
+    print("-- Verify: every VOX branch should now have a source and a code.")
+    print("-- select branch_id, branch_name, source, source_code")
+    print("-- from branches where cinema_name = 'VOX' order by branch_name;")
+
+
 def main() -> None:
+    # Read-only: scrape, print the branch rows, write nothing at all.
+    # Needs no service-role key, since it never talks to Supabase.
+    if "--propose-branches" in sys.argv:
+        print_proposed_branches(scrape_all())
+        return
+
     supabase_url, service_role_key = _load_env()
     if not supabase_url or not service_role_key:
         print(

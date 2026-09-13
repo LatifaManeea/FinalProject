@@ -4,8 +4,8 @@ import 'film.dart';
 
 /// A row for the History screen (F6) — one past `movies_seen` entry,
 /// denormalised with what the screen needs to render without a second
-/// round trip (the real repository would join through `branches` and
-/// `films`; the fake one just builds it directly).
+/// round trip — `Database.getHistory` joins through `branches` and
+/// `films` in one embedded query and [Attendance.fromJson] flattens it.
 class Attendance {
   const Attendance({
     required this.id,

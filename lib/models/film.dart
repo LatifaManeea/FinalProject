@@ -10,6 +10,8 @@ class Film {
     required this.filmId,
     required this.title,
     required this.durationMin,
+    this.source,
+    this.sourceSlug,
     this.posterUrl,
     this.creditsStartMin,
     this.breaksCheckedAt,
@@ -24,7 +26,12 @@ class Film {
     return Film(
       filmId: json["film_id"],
       title: json["title"],
-      durationMin: json["duration_min"],
+      // `duration_min` is nullable in the schema — VOX leaves the
+      // runtime off titles that haven't opened yet. 0 carries that
+      // through as "unknown", which [hasKnownDuration] reads.
+      durationMin: json["duration_min"] ?? 0,
+      source: json["source"],
+      sourceSlug: json["source_slug"],
       posterUrl: json["poster_url"],
       creditsStartMin: json["credits_start_min"],
       breaksCheckedAt: checkedAt == null ? null : DateTime.parse(checkedAt).toLocal(),
@@ -34,6 +41,14 @@ class Film {
   final int filmId;
   final String title;
   final int durationMin;
+
+  /// Which cinema's site this film was scraped from ('vox'), and that
+  /// site's own slug for it ('the-odyssey'). Together they're the
+  /// film's identity at the source, which is what [bookingUrl] rebuilds
+  /// a link out of. Null only for a row written before the scraper
+  /// existed.
+  final String? source;
+  final String? sourceSlug;
   final String? posterUrl;
   final int? creditsStartMin;
   final DateTime? breaksCheckedAt;
@@ -47,11 +62,61 @@ class Film {
       filmId: filmId,
       title: title,
       durationMin: durationMin,
+      source: source,
+      sourceSlug: sourceSlug,
       posterUrl: posterUrl,
       creditsStartMin: creditsStartMin ?? this.creditsStartMin,
       breaksCheckedAt: breaksCheckedAt ?? this.breaksCheckedAt,
     );
   }
+
+  /// Where each scraped site's own film page lives, as a template the
+  /// slug is substituted into. The scraper builds the very same URL to
+  /// read the runtime and poster off (`f"{BASE}/movies/{slug}"` in
+  /// vox_scraper.py), so a link built here lands on the page the row
+  /// came from — the one with that cinema's own booking flow on it.
+  /// Adding a chain is one line here — the key is the `films.source`
+  /// token its scraper stamps rows with, the value is everything before
+  /// the slug. Take both from the scraper itself rather than from a
+  /// browser's address bar: the scraper already has to build this exact
+  /// URL to read the film's page, so its `BASE` and its slug are the
+  /// two halves that are known to work together.
+  ///
+  /// The other four chains are deliberately absent rather than guessed.
+  /// A wrong template here would send someone to a 404 on a cinema's
+  /// real site, which is worse than no link — and until their scrapers
+  /// exist there are no films with those sources anyway.
+  static const Map<String, String> _filmPageBySource = {
+    'vox': 'https://ksa.voxcinemas.com/movies/',
+    // 'muvi': 'https://.../',
+    // 'scene': 'https://.../',
+    // 'reel': 'https://.../',
+    // 'cinema-house': 'https://.../',
+  };
+
+  /// The cinema's own page for this film, or null when the film was
+  /// scraped from a site with no template on record — in which case no
+  /// link is shown rather than a guessed one.
+  Uri? get bookingUrl {
+    final base = _filmPageBySource[source];
+    final slug = sourceSlug;
+
+    if (base == null || slug == null || slug.isEmpty) {
+      return null;
+    }
+    return Uri.parse('$base$slug');
+  }
+
+  /// Two rows for the same `film_id` are the same film, whichever
+  /// query built them. Without this, a film tapped on the Cinemas tab
+  /// (from `filmsForCinema`) and the same film in the Schedule Card's
+  /// picker (from `nowShowing`) are two unequal objects, and
+  /// DropdownButton asserts that its value matches exactly one item.
+  @override
+  bool operator ==(Object other) => other is Film && other.filmId == filmId;
+
+  @override
+  int get hashCode => filmId.hashCode;
 
   bool get breaksAreCached => breaksCheckedAt != null;
 

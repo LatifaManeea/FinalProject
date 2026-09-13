@@ -11,10 +11,18 @@ import '../models/film_break.dart';
 /// Lives in this file rather than in `models/` because nothing else
 /// produces one — it only ever comes back from [GeminiApi].
 class BreaksAnswer {
-  const BreaksAnswer({required this.creditsStartMin, required this.breaks});
+  const BreaksAnswer({
+    required this.creditsStartMin,
+    required this.breaks,
+    this.isEstimate = false,
+  });
 
   final int? creditsStartMin;
   final List<FilmBreak> breaks;
+
+  /// True when this came from the estimating pass rather than the
+  /// strict one — see [GeminiApi.getBreaksForFilm].
+  final bool isEstimate;
 
   /// Gemini was asked but had nothing usable for this film. The schedule
   /// is still valid, it just has no safe windows marked.
@@ -30,11 +38,23 @@ class GeminiApi {
   /// More than this on screen is noise rather than help.
   static const int maxBreaks = 4;
 
+  /// [year] is optional because nothing in the app knows it any more:
+  /// `films` is scraped from a cinema's listings, which print a runtime
+  /// and a poster but not a release year. The prompt simply leaves it
+  /// out when it is null, and leans on the title and runtime instead.
+  /// [estimate] swaps the prompt's last rule. Off, the model is told to
+  /// return nothing rather than guess about a film it doesn't know —
+  /// which, for a catalogue of unreleased and week-old releases, means
+  /// it returns nothing almost every time. On, it is told to reason
+  /// from how films of this kind are usually paced and answer anyway.
+  /// [SupabaseRepository.breaksForFilm] asks the first way, then the
+  /// second, so a film the model genuinely knows is never estimated.
   Future<BreaksAnswer> getBreaksForFilm(
     String title,
-    int year,
-    int durationMin,
-  ) async {
+    int durationMin, {
+    int? year,
+    bool estimate = false,
+  }) async {
     String link = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
     // convert [String] to [Uri]
@@ -47,13 +67,13 @@ class GeminiApi {
 
     Map<String, dynamic> body = {
       "model": "gemini-3.8-flash",
-      "input": buildPrompt(title, year, durationMin),
+      "input": buildPrompt(title, durationMin, year: year, estimate: estimate),
     };
 
     var request = await http.post(uri, headers: header, body: jsonEncode(body));
 
     if (request.statusCode == 429) {
-      throw Exception("Gemini is rate limited, try again shortly");
+      throw Exception(rateLimitMessage(request.body));
     }
     if (request.statusCode != 200) {
       throw Exception("Could not load film breaks (${request.statusCode})");
@@ -64,7 +84,32 @@ class GeminiApi {
 
     String answer = readText(responseBody);
 
-    return readAnswer(answer, durationMin);
+    return readAnswer(answer, durationMin, isEstimate: estimate);
+  }
+
+  /// Turns a 429 into a sentence with the actual wait in it.
+  ///
+  /// The free tier allows 20 requests a minute, and Google's reply says
+  /// exactly how long until the window reopens ("Please retry in
+  /// 27.387959228s"). That number is the difference between a person
+  /// waiting half a minute and assuming the feature is broken, so it is
+  /// worth digging out. Falls back to a plain sentence if the body
+  /// isn't shaped as expected — an unreadable error must not become a
+  /// crash on top of the error.
+  String rateLimitMessage(String body) {
+    try {
+      final message = jsonDecode(body)["error"]?["message"]?.toString() ?? "";
+      final seconds = RegExp(r"retry in ([\d.]+)s").firstMatch(message)?.group(1);
+
+      if (seconds != null) {
+        final wait = double.parse(seconds).ceil();
+        return "Gemini's free tier allows 20 requests a minute, and that's "
+            "been reached. Try again in $wait seconds.";
+      }
+    } catch (_) {
+      // Fall through to the generic message below.
+    }
+    return "Gemini is rate limited, try again shortly.";
   }
 
   /// Pulls the reply text out of Gemini's `steps` array.
@@ -88,11 +133,25 @@ class GeminiApi {
   }
 
   /// Asks for bare JSON so the reply can be parsed rather than read.
-  String buildPrompt(String title, int year, int durationMin) {
+  String buildPrompt(String title, int durationMin, {int? year, bool estimate = false}) {
+    final released = year == null ? "" : " ($year)";
+
+    // The only difference between the two passes. The strict rule is
+    // what makes a first-pass answer trustworthy; the estimating rule
+    // is what stops an unreleased film returning nothing at all.
+    final lastRule = estimate
+        ? "- If you do not know this specific film's scenes, do NOT return an "
+              "empty list. Reason instead from its title, runtime and likely "
+              "genre, and from how films of that kind are usually paced — the "
+              "lull after the first act's setup, the stretch before the "
+              "climax builds — and give your best windows."
+        : "- If you are not confident about this specific film, return "
+              "{\"credits_start_min\": null, \"breaks\": []} rather than guessing.";
+
     return "You are helping cinema-goers decide when they can safely step out "
         "of a screening without missing anything important.\n"
         "\n"
-        "Film: \"$title\" ($year), running time $durationMin minutes.\n"
+        "Film: \"$title\"$released, running time $durationMin minutes.\n"
         "\n"
         "Reply with ONLY a JSON object, no prose and no code fences, shaped "
         "exactly:\n"
@@ -110,8 +169,7 @@ class GeminiApi {
         "- Breaks must be at least $minBreakMinutes minutes long, must not "
         "overlap, and must lie between 0 and $durationMin.\n"
         "- Return at most $maxBreaks breaks, the safest first.\n"
-        "- If you are not confident about this specific film, return "
-        "{\"credits_start_min\": null, \"breaks\": []} rather than guessing.";
+        "$lastRule";
   }
 
   /// Turns Gemini's reply into a [BreaksAnswer], distrusting all of it.
@@ -121,14 +179,14 @@ class GeminiApi {
   /// around the JSON. None of that should reach the timeline, and none of
   /// it would survive the `credits_start_min < duration_min` check or the
   /// `(film_id, start_min)` key if it were ever written to Supabase.
-  BreaksAnswer readAnswer(String answer, int durationMin) {
+  BreaksAnswer readAnswer(String answer, int durationMin, {bool isEstimate = false}) {
     // Models often wrap JSON in a code fence despite being told not to,
     // so take the outermost object rather than the whole string.
     int start = answer.indexOf("{");
     int end = answer.lastIndexOf("}");
 
     if (start == -1 || end == -1) {
-      return const BreaksAnswer(creditsStartMin: null, breaks: []);
+      return BreaksAnswer(creditsStartMin: null, breaks: const [], isEstimate: isEstimate);
     }
 
     dynamic jsonBody;
@@ -136,12 +194,13 @@ class GeminiApi {
       jsonBody = jsonDecode(answer.substring(start, end + 1));
     } catch (e) {
       // A reply we cannot read is the same outcome as "nothing found".
-      return const BreaksAnswer(creditsStartMin: null, breaks: []);
+      return BreaksAnswer(creditsStartMin: null, breaks: const [], isEstimate: isEstimate);
     }
 
     return BreaksAnswer(
       creditsStartMin: readCredits(jsonBody["credits_start_min"], durationMin),
-      breaks: readBreaks(jsonBody["breaks"], durationMin),
+      breaks: readBreaks(jsonBody["breaks"], durationMin, isEstimate: isEstimate),
+      isEstimate: isEstimate,
     );
   }
 
@@ -157,7 +216,7 @@ class GeminiApi {
     return minute;
   }
 
-  List<FilmBreak> readBreaks(dynamic value, int durationMin) {
+  List<FilmBreak> readBreaks(dynamic value, int durationMin, {bool isEstimate = false}) {
     if (value is! List) {
       return [];
     }
@@ -176,7 +235,7 @@ class GeminiApi {
       if (startMin < 0 || endMin > durationMin) continue;
       if (endMin - startMin < minBreakMinutes) continue;
 
-      list.add(FilmBreak(startMin: startMin, endMin: endMin));
+      list.add(FilmBreak(startMin: startMin, endMin: endMin, isEstimated: isEstimate));
     }
 
     list.sort((a, b) => a.startMin.compareTo(b.startMin));

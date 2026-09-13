@@ -16,7 +16,7 @@ class Cinema {
     );
   }
 
-  /// Primary key — "VOX", "Muvi", "Scene", "Empire", "Cinema House".
+  /// Primary key — "VOX", "Muvi", "Scene", "Reel", "Cinema House".
   final String name;
 
   /// Ad block for films under 2 hours.

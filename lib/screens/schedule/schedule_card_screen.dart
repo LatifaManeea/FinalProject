@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
@@ -80,6 +81,16 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     final cinemas = await appRepository.cinemas();
     final films = await appRepository.nowShowing();
     if (!mounted) return;
+
+    // A preselected film must be among the options, or DropdownButton
+    // asserts on a value it can't find. It normally is — `nowShowing`
+    // returns every film — but a film that has since been delisted
+    // would otherwise crash the screen it was opened from.
+    final film = _film;
+    if (film != null && !films.contains(film)) {
+      films.insert(0, film);
+    }
+
     setState(() {
       _cinemas = cinemas;
       _filmOptions = films;
@@ -122,13 +133,41 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     }
     if (film != null) {
       setState(() => _loadingBreaks = true);
-      final breaks = await appRepository.breaksForFilm(film.filmId);
-      if (!mounted) return;
-      setState(() {
-        _breaks = breaks;
-        _loadingBreaks = false;
-      });
+      try {
+        final breaks = await appRepository.breaksForFilm(film.filmId);
+        if (!mounted) return;
+        setState(() => _breaks = breaks);
+      } catch (e) {
+        // Gemini rate-limited us, or the lookup failed. The schedule is
+        // still correct and usable without safe windows — the ad block
+        // is what this screen is really for — so say what happened and
+        // carry on rather than failing the whole screen.
+        if (!mounted) return;
+        setState(() => _breaks = []);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Couldn\'t load safe breaks: $e')),
+        );
+      } finally {
+        if (mounted) setState(() => _loadingBreaks = false);
+      }
     }
+  }
+
+  /// Opens the cinema's own page for this film in the phone's browser,
+  /// where their booking flow lives. Deliberately external rather than
+  /// an in-app webview: buying involves payment and a login on the
+  /// cinema's own domain, which a person should see in a real browser
+  /// with a real address bar.
+  Future<void> _openBookingPage() async {
+    final url = _film?.bookingUrl;
+    if (url == null) return;
+
+    final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (opened || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Couldn\'t open $url')),
+    );
   }
 
   Future<void> _pickTicketTime() async {
@@ -151,6 +190,10 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     final branch = _branch;
     final ad = _adMinutes;
     if (film == null || branch == null || ad == null) return null;
+    // A film the cinema hasn't published a runtime for yet. Every
+    // minute on the timeline is measured from it, so there is no
+    // schedule to build — [_buildIncompleteHint] says which it is.
+    if (!film.hasKnownDuration) return null;
     return Schedule(branch: branch, film: film, ticketTime: _ticketTime, adMinutes: ad, breaks: _breaks);
   }
 
@@ -281,6 +324,10 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
         if (schedule != null) _buildScheduleSummary(schedule) else _buildIncompleteHint(),
         const SizedBox(height: 28),
         TickedPrimaryButton(label: 'Start', onPressed: schedule == null ? null : _start),
+        if (_film?.bookingUrl != null) ...[
+          const SizedBox(height: 24),
+          _BuyTicketLink(onOpen: _openBookingPage),
+        ],
       ],
     );
   }
@@ -343,7 +390,11 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
       child: Text(
-        'Pick a film, chain and branch to see the real start and end time.',
+        _film != null && !_film!.hasKnownDuration
+            ? '${_film!.title} has no running time listed yet, so its schedule '
+                  'can\'t be worked out. Pick another film, or try again once '
+                  'the cinema publishes one.'
+            : 'Pick a film, chain and branch to see the real start and end time.',
         style: AppTypography.bodyMedium,
       ),
     );
@@ -386,6 +437,22 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
           ] else if (schedule.breaks.isEmpty) ...[
             const SizedBox(height: 10),
             Text('No safe breaks found for this film.', style: AppTypography.bodySmall),
+          ] else if (schedule.breaks.first.isEstimated) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 13, color: AppColors.textTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Estimated from this film\'s runtime and pacing — nobody has '
+                    'confirmed these scenes yet.',
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+              ],
+            ),
           ],
         ],
       ),
@@ -504,6 +571,53 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
         const SizedBox(height: 28),
         TickedPrimaryButton(label: 'Done', onPressed: () => Navigator.of(context).pop()),
       ],
+    );
+  }
+}
+
+/// "Buy a ticket for this film" — a link out to the cinema's own page
+/// for it, built from the slug the scraper stored. Ticked never sells a
+/// ticket itself; it works out when the film really starts once you
+/// have one.
+class _BuyTicketLink extends StatelessWidget {
+  const _BuyTicketLink({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          children: [
+            Text(
+              'Don\'t have a ticket?',
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyMedium,
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Then buy one from here!',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.label.copyWith(
+                    color: AppColors.gold,
+                    decoration: TextDecoration.underline,
+                    decorationColor: AppColors.gold,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.open_in_new, size: 14, color: AppColors.gold),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

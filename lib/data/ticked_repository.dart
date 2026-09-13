@@ -1,4 +1,3 @@
-import '../models/app_user.dart';
 import '../models/attendance.dart';
 import '../models/branch.dart';
 import '../models/cinema.dart';
@@ -9,17 +8,18 @@ import '../models/showtime.dart';
 import '../models/yearly_recap.dart';
 
 /// The frozen interface contract from the proposal's two-person work
-/// split (section 12) — agreed on day 1, implemented behind
-/// [FakeRepository] for now so every screen below can be built and
-/// navigated today, then swapped for the real Supabase-backed
-/// implementation without any screen code changing.
+/// split (section 12) — agreed on day 1, built against a fake
+/// repository so every screen could be finished before the backend
+/// existed, and now implemented for real by [SupabaseRepository]. The
+/// swap cost no screen a single line, which was the point of freezing
+/// it.
 abstract class TickedRepository {
   // ---- Auth -------------------------------------------------------------
-  Future<AppUser> register(String email, String password, String displayName);
-  Future<AppUser> signIn(String email, String password);
-  Future<void> sendPasswordReset(String email);
-  Future<AppUser?> currentUser();
-  Future<void> signOut();
+  // Deliberately not here. Auth was in the contract when a fake
+  // repository had to stand in for a signed-in session; every auth
+  // screen has always called `Database` directly (see auth_flow.dart
+  // and splash_screen.dart), so these five methods only ever existed to
+  // be faked. Removing them breaks no caller.
 
   // ---- Reference data -----------------------------------------------------
   Future<List<Cinema>> cinemas();
@@ -28,6 +28,12 @@ abstract class TickedRepository {
 
   // ---- Films ---------------------------------------------------------------
   Future<List<Film>> nowShowing();
+
+  /// Everything playing at one chain, for the Cinemas tab's per-chain
+  /// row. Only VOX is scraped today, so the other four chains return an
+  /// empty list and the tab shows them with an empty state — see
+  /// Database.getFilmsBySource.
+  Future<List<Film>> filmsForCinema(String cinemaName);
   Future<Film?> matchFilmByTitle(String ocrTitle);
   Future<Film> filmDetails(int filmId);
 

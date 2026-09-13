@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
-import 'history/history_screen.dart';
+import 'cinemas/cinemas_screen.dart';
 import 'home/home_screen.dart';
 import 'profile/profile_screen.dart';
 
-/// The signed-in app shell — Home, History, Profile on a bottom nav.
-/// Settings and About Us (screens 11–12) are reached from Profile
-/// rather than living here as tabs, matching how they're grouped in
-/// the screen inventory.
+/// The signed-in app shell — Home, Cinemas, Profile on a bottom nav.
+/// History no longer has a tab of its own: it opens as the top half of
+/// Settings, which is reached from Profile along with About Us.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -18,13 +17,31 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  static const _cinemasTab = 1;
+
   int _index = 0;
+
+  /// Home's chips ask the Cinemas tab to scroll to one chain; the shell
+  /// owns the channel because it owns which tab is showing.
+  final ValueNotifier<CinemaJumpRequest?> _jumpTo = ValueNotifier(null);
+  int _jumpSeq = 0;
 
   static const _tabs = [
     _Tab(icon: Icons.local_movies_outlined, activeIcon: Icons.local_movies, label: 'Home'),
-    _Tab(icon: Icons.history_outlined, activeIcon: Icons.history, label: 'History'),
+    _Tab(icon: Icons.theaters_outlined, activeIcon: Icons.theaters, label: 'Cinemas'),
     _Tab(icon: Icons.person_outline, activeIcon: Icons.person, label: 'Profile'),
   ];
+
+  @override
+  void dispose() {
+    _jumpTo.dispose();
+    super.dispose();
+  }
+
+  void _browseCinema(String cinemaName) {
+    setState(() => _index = _cinemasTab);
+    _jumpTo.value = CinemaJumpRequest(cinemaName, _jumpSeq++);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,10 +49,10 @@ class _MainShellState extends State<MainShell> {
       backgroundColor: AppColors.bg,
       body: IndexedStack(
         index: _index,
-        children: const [
-          HomeScreen(),
-          HistoryScreen(),
-          ProfileScreen(),
+        children: [
+          HomeScreen(onBrowseCinema: _browseCinema),
+          CinemasScreen(jumpTo: _jumpTo),
+          const ProfileScreen(),
         ],
       ),
       bottomNavigationBar: DecoratedBox(

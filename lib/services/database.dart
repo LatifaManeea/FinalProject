@@ -22,7 +22,7 @@ import '../models/yearly_recap.dart';
 /// everyone, so asking Gemini once per film rather than once per person
 /// is the whole point. It does mean the rows are only as trustworthy as
 /// the app writing them, which is why [GeminiApi] validates hard before
-/// anything reaches [addNewFilm] or [addNewBreaks].
+/// anything reaches [markBreaksChecked] or [addNewBreaks].
 ///
 /// `showtimes` is read-only from here too, but for a different reason:
 /// it is written exclusively by the scraper's service-role key, which
@@ -162,6 +162,21 @@ class Database {
     return allCinemas;
   }
 
+  /// One branch by its id — what [SupabaseRepository.buildSchedule]
+  /// needs to turn a `branch_id` back into a chain and a place.
+  Future<Branch?> getBranch(int branchId) async {
+    final data = await supabase
+        .from("branches")
+        .select()
+        .eq("branch_id", branchId)
+        .maybeSingle();
+
+    if (data == null) {
+      return null;
+    }
+    return Branch.fromJson(data);
+  }
+
   Future<List<Branch>> getBranches(String cinemaName) async {
     final data = await supabase
         .from("branches")
@@ -179,6 +194,40 @@ class Database {
   }
 
   // ---- Films and breaks (the shared cache) ------------------------------
+
+  /// Everything the scrapers have mirrored, by title — the
+  /// film picker on the Schedule Card. Titles with no runtime yet are
+  /// included: the picker shows them, and `Film.hasKnownDuration` is
+  /// what stops a schedule being built from one.
+  Future<List<Film>> getNowShowing() async {
+    final data = await supabase.from("films").select().order("title");
+
+    List<Film> allFilms = [];
+
+    for (var element in data) {
+      allFilms.add(Film.fromJson(element));
+    }
+    return allFilms;
+  }
+
+  /// Films whose title contains [query], for matching a title read off
+  /// a ticket. `ilike` is Postgres' case-insensitive LIKE, so the
+  /// wildcards do the fuzzy part — a short or garbled OCR guess still
+  /// finds "Spider-Man: Brand New Day" from "spider".
+  Future<List<Film>> searchFilmsByTitle(String query) async {
+    final data = await supabase
+        .from("films")
+        .select()
+        .ilike("title", "%$query%")
+        .order("title");
+
+    List<Film> matches = [];
+
+    for (var element in data) {
+      matches.add(Film.fromJson(element));
+    }
+    return matches;
+  }
 
   /// The cached film, or null when this film has never been mirrored
   /// — in which case the Edge Function has to run before a schedule can
@@ -215,28 +264,25 @@ class Database {
     return allBreaks;
   }
 
-  /// Stamps the film as checked once Gemini has answered for it.
+  /// Stamps the film as checked once Gemini has answered for it, and
+  /// stores the credits minute it found.
   ///
   /// `breaks_checked_at` is set here rather than by the caller, because
   /// stamping it is what makes the cache a cache: a non-null timestamp
   /// with no `breaks` rows means "asked Gemini, found nothing", and is
   /// what stops the same film being sent to Gemini over and over.
   ///
-  /// Upsert rather than insert, so two devices opening the same film at
-  /// once do not collide on the `(source, source_slug)` unique key the
-  /// scraper itself upserts on.
-  Future<void> addNewFilm(Film film) async {
-    await supabase.from("films").upsert({
-      "film_id": film.filmId,
-      "title": film.title,
-      "duration_min": film.durationMin,
-      "poster_url": film.posterUrl,
-      "credits_start_min": film.creditsStartMin,
+  /// An update, never an insert — every film row is created by a
+  /// scraper, which owns `source`, `source_slug` and the runtime. The
+  /// app only ever fills in the two columns Gemini answers for.
+  Future<void> markBreaksChecked(int filmId, int? creditsStartMin) async {
+    await supabase.from("films").update({
+      "credits_start_min": creditsStartMin,
       "breaks_checked_at": DateTime.now().toUtc().toIso8601String(),
-    });
+    }).eq("film_id", filmId);
   }
 
-  /// Caches the safe windows for a film. Call [addNewFilm] first — the
+  /// Caches the safe windows for a film. Call [markBreaksChecked] too —
   /// foreign key on `breaks` needs the film row to exist.
   Future<void> addNewBreaks(int filmId, List<FilmBreak> breaks) async {
     // Replace rather than append: re-asking Gemini for a film must not
@@ -256,6 +302,7 @@ class Database {
         "film_id": filmId,
         "start_min": filmBreak.startMin,
         "end_min": filmBreak.endMin,
+        "is_estimated": filmBreak.isEstimated,
       });
     }
     await supabase.from("breaks").insert(rows);
@@ -277,6 +324,35 @@ class Database {
       allShowtimes.add(Showtime.fromJson(element));
     }
     return allShowtimes;
+  }
+
+  /// Every film scraped from one chain's own site — the Cinemas tab's
+  /// per-chain row. [source] is the `films.source` token the scraper
+  /// stamps each row with ('vox'), which is the direct record of whose
+  /// listings a film came from.
+  ///
+  /// Deliberately *not* joined through `showtimes` → `branches`, which
+  /// would look like the more correct question to ask. `branches` is
+  /// hand-managed: sync_to_supabase.py only reads it, matching VOX's
+  /// own branch codes against `source_code` values someone has to
+  /// enter by hand, and silently skips the showtimes of any branch
+  /// with no matching row. Until those rows exist, `showtimes` is
+  /// empty and that join returns nothing for films that are plainly
+  /// in the table. `source` is populated by the same upsert that
+  /// writes the film, so it is true the moment a film exists.
+  Future<List<Film>> getFilmsBySource(String source) async {
+    final data = await supabase
+        .from("films")
+        .select()
+        .eq("source", source)
+        .order("title");
+
+    List<Film> allFilms = [];
+
+    for (var element in data) {
+      allFilms.add(Film.fromJson(element));
+    }
+    return allFilms;
   }
 
   // ---- Movies seen ------------------------------------------------------
