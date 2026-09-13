@@ -29,9 +29,23 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
   bool _isParsing = false;
 
   Future<void> _pick(ImageSource source) async {
-    final picked = await _picker.pickImage(source: source, maxWidth: 2000, imageQuality: 90);
-    if (picked == null) return;
-    setState(() => _photo = File(picked.path));
+    try {
+      final picked = await _picker.pickImage(source: source, maxWidth: 2000, imageQuality: 90);
+      if (picked == null) return;
+      setState(() => _photo = File(picked.path));
+    } catch (e) {
+      if (!mounted) return;
+      final isCamera = source == ImageSource.camera;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isCamera
+                ? 'Couldn\'t open the camera. On the iOS Simulator there is no camera — try Library instead, or a real device.'
+                : 'Couldn\'t open the photo library: $e',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _useThisPhoto() async {
