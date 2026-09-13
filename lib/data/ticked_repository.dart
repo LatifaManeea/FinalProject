@@ -5,6 +5,7 @@ import '../models/cinema.dart';
 import '../models/film.dart';
 import '../models/film_break.dart';
 import '../models/schedule.dart';
+import '../models/showtime.dart';
 import '../models/yearly_recap.dart';
 
 /// The frozen interface contract from the proposal's two-person work
@@ -25,22 +26,29 @@ abstract class TickedRepository {
   Future<List<Branch>> branches(String cinemaName);
   Future<int> adMinutes(String cinemaName, int durationMin);
 
-  // ---- TMDB ---------------------------------------------------------------
+  // ---- Films ---------------------------------------------------------------
   Future<List<Film>> nowShowing();
   Future<Film?> matchFilmByTitle(String ocrTitle);
-  Future<Film> filmDetails(int tmdbId);
+  Future<Film> filmDetails(int filmId);
 
   // ---- Scheduling -----------------------------------------------------------
   Future<Schedule> buildSchedule({
     required int branchId,
-    required int tmdbId,
+    required int filmId,
     required DateTime ticketTime,
   });
 
   /// Cache-first, Edge Function on miss. Also fills `creditsStartMin`
   /// and guarantees the film row exists, which recording attendance
   /// depends on.
-  Future<List<FilmBreak>> breaksForFilm(int tmdbId);
+  Future<List<FilmBreak>> breaksForFilm(int filmId);
+
+  // ---- Showtimes ------------------------------------------------------------
+  /// Every showing of [filmId] across all branches, soonest first.
+  /// Real implementation reads the `showtimes` table (written only by
+  /// the scraper's service-role key — see Database.getShowtimesForFilm
+  /// and scripts/sync_to_supabase.py).
+  Future<List<Showtime>> showtimesForFilm(int filmId);
 
   // ---- Attendance -----------------------------------------------------------
   Future<int> recordAttendance(Schedule schedule);

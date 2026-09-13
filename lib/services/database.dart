@@ -6,13 +6,15 @@ import '../models/branch.dart';
 import '../models/cinema.dart';
 import '../models/film.dart';
 import '../models/film_break.dart';
+import '../models/showtime.dart';
 import '../models/yearly_recap.dart';
 
-/// Everything the app asks of Supabase: auth, and the six tables.
+/// Everything the app asks of Supabase: auth, and the seven tables.
 ///
 /// `profiles` and `movies_seen` are written only for the signed-in user,
 /// which RLS enforces. `cinemas` and `branches` are read-only reference
-/// data, seeded by hand.
+/// data; `branches` is additionally kept in sync by the VOX scraper for
+/// VOX's own branches (see scripts/sync_to_supabase.py).
 ///
 /// `films` and `breaks` are the shared cache: any signed-in user may
 /// write them, and every user reads what anyone else filled in. That is
@@ -21,6 +23,11 @@ import '../models/yearly_recap.dart';
 /// is the whole point. It does mean the rows are only as trustworthy as
 /// the app writing them, which is why [GeminiApi] validates hard before
 /// anything reaches [addNewFilm] or [addNewBreaks].
+///
+/// `showtimes` is read-only from here too, but for a different reason:
+/// it is written exclusively by the scraper's service-role key, which
+/// bypasses RLS entirely, so there is no `addNewShowtime` — nothing in
+/// the app is meant to write one.
 class Database {
   final supabase = Supabase.instance.client;
 
@@ -173,14 +180,14 @@ class Database {
 
   // ---- Films and breaks (the shared cache) ------------------------------
 
-  /// The cached film, or null when this tmdb id has never been mirrored
+  /// The cached film, or null when this film has never been mirrored
   /// — in which case the Edge Function has to run before a schedule can
   /// be built.
-  Future<Film?> getFilm(int tmdbId) async {
+  Future<Film?> getFilm(int filmId) async {
     final data = await supabase
         .from("films")
         .select()
-        .eq("tmdb_id", tmdbId)
+        .eq("film_id", filmId)
         .maybeSingle();
 
     if (data == null) {
@@ -192,11 +199,11 @@ class Database {
   /// The safe windows for a film. An empty list is ambiguous on its own
   /// — it means either "never asked" or "asked, found nothing" — so
   /// read `Film.breaksAreCached` to tell those apart.
-  Future<List<FilmBreak>> getBreaks(int tmdbId) async {
+  Future<List<FilmBreak>> getBreaks(int filmId) async {
     final data = await supabase
         .from("breaks")
         .select()
-        .eq("tmdb_id", tmdbId)
+        .eq("film_id", filmId)
         .order("start_min");
 
     List<FilmBreak> allBreaks = [];
@@ -208,7 +215,7 @@ class Database {
     return allBreaks;
   }
 
-  /// Caches the TMDB mirror and stamps the film as checked.
+  /// Stamps the film as checked once Gemini has answered for it.
   ///
   /// `breaks_checked_at` is set here rather than by the caller, because
   /// stamping it is what makes the cache a cache: a non-null timestamp
@@ -216,10 +223,11 @@ class Database {
   /// what stops the same film being sent to Gemini over and over.
   ///
   /// Upsert rather than insert, so two devices opening the same film at
-  /// once do not collide on the `tmdb_id` primary key.
+  /// once do not collide on the `(source, source_slug)` unique key the
+  /// scraper itself upserts on.
   Future<void> addNewFilm(Film film) async {
     await supabase.from("films").upsert({
-      "tmdb_id": film.tmdbId,
+      "film_id": film.filmId,
       "title": film.title,
       "duration_min": film.durationMin,
       "poster_url": film.posterUrl,
@@ -230,10 +238,10 @@ class Database {
 
   /// Caches the safe windows for a film. Call [addNewFilm] first — the
   /// foreign key on `breaks` needs the film row to exist.
-  Future<void> addNewBreaks(int tmdbId, List<FilmBreak> breaks) async {
+  Future<void> addNewBreaks(int filmId, List<FilmBreak> breaks) async {
     // Replace rather than append: re-asking Gemini for a film must not
-    // trip the (tmdb_id, start_min) primary key.
-    await supabase.from("breaks").delete().eq("tmdb_id", tmdbId);
+    // trip the (film_id, start_min) primary key.
+    await supabase.from("breaks").delete().eq("film_id", filmId);
 
     // Nothing found is a real answer, and the stamp on `films` already
     // recorded it. No rows to write.
@@ -245,12 +253,30 @@ class Database {
 
     for (var filmBreak in breaks) {
       rows.add({
-        "tmdb_id": tmdbId,
+        "film_id": filmId,
         "start_min": filmBreak.startMin,
         "end_min": filmBreak.endMin,
       });
     }
     await supabase.from("breaks").insert(rows);
+  }
+
+  // ---- Showtimes (read-only — written only by the scraper) --------------
+
+  /// Every showing of [filmId] across all branches, soonest first.
+  Future<List<Showtime>> getShowtimesForFilm(int filmId) async {
+    final data = await supabase
+        .from("showtimes")
+        .select()
+        .eq("film_id", filmId)
+        .order("show_time");
+
+    List<Showtime> allShowtimes = [];
+
+    for (var element in data) {
+      allShowtimes.add(Showtime.fromJson(element));
+    }
+    return allShowtimes;
   }
 
   // ---- Movies seen ------------------------------------------------------
@@ -260,7 +286,7 @@ class Database {
   Future<int> addNewMovieSeen(
     String userId,
     int branchId,
-    int tmdbId,
+    int filmId,
     DateTime ticketTime,
   ) async {
     final data = await supabase
@@ -268,7 +294,7 @@ class Database {
         .insert({
           "user_id": userId,
           "branch_id": branchId,
-          "tmdb_id": tmdbId,
+          "film_id": filmId,
           "ticket_time": ticketTime.toUtc().toIso8601String(),
         })
         .select("movie_seen_id")

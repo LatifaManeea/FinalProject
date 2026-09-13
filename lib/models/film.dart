@@ -1,12 +1,13 @@
-import '../constants/tmdb.dart';
-
-/// Mirrors `films` — a thin local mirror of TMDB, not a metadata
-/// store. `breaksCheckedAt` is the two-state-encodes-three-outcomes
+/// Mirrors `films`. `breaksCheckedAt` is the two-state-encodes-three-outcomes
 /// column from the proposal: null means never asked; non-null with no
 /// [FilmBreak] rows means asked and nothing usable was found.
+///
+/// Populated by scraping cinema sites directly (VOX Cinemas first —
+/// see scripts/vox_scraper.py) rather than TMDB: `filmId` is a plain
+/// auto-incrementing id, not any third party's id.
 class Film {
   const Film({
-    required this.tmdbId,
+    required this.filmId,
     required this.title,
     required this.durationMin,
     this.posterUrl,
@@ -14,13 +15,14 @@ class Film {
     this.breaksCheckedAt,
   });
 
-  /// One row of `films`. Written only by the Edge Function (service
-  /// role) — the client has SELECT and nothing more.
+  /// One row of `films`. Written by the scraper's sync job (service
+  /// role) and, for the shared breaks cache, by any signed-in client —
+  /// see database.dart.
   factory Film.fromJson(Map<String, dynamic> json) {
     final checkedAt = json["breaks_checked_at"];
 
     return Film(
-      tmdbId: json["tmdb_id"],
+      filmId: json["film_id"],
       title: json["title"],
       durationMin: json["duration_min"],
       posterUrl: json["poster_url"],
@@ -29,37 +31,20 @@ class Film {
     );
   }
 
-  /// The `/movie/{id}` details response, whose field names are nothing
-  /// like the column names above — hence a second factory rather than
-  /// a branch inside the first.
-  ///
-  /// [creditsStartMin] and [breaksCheckedAt] stay null: TMDB knows
-  /// nothing about either. They are filled in from `films` once the
-  /// Edge Function has run.
-  factory Film.fromTmdb(Map<String, dynamic> json) {
-    return Film(
-      tmdbId: json["id"],
-      title: json["title"],
-      // TMDB leaves `runtime` null or 0 for films it has no length
-      // for — read 0 as "unknown", never as a real duration.
-      durationMin: json["runtime"] ?? 0,
-      posterUrl: Tmdb.posterUrl(json["poster_path"]),
-    );
-  }
-
-  final int tmdbId;
+  final int filmId;
   final String title;
   final int durationMin;
   final String? posterUrl;
   final int? creditsStartMin;
   final DateTime? breaksCheckedAt;
 
-  /// Used to attach Gemini's credits answer to the TMDB mirror before
-  /// caching it — TMDB knows the runtime, Gemini knows the credits, and
-  /// the `films` row needs both.
+  /// Used to attach Gemini's credits answer to the cached row before
+  /// writing it back — Gemini is only ever asked for the credits/break
+  /// timing, never for title/duration/poster, so those three pass
+  /// through untouched here.
   Film copyWith({int? creditsStartMin, DateTime? breaksCheckedAt}) {
     return Film(
-      tmdbId: tmdbId,
+      filmId: filmId,
       title: title,
       durationMin: durationMin,
       posterUrl: posterUrl,
@@ -70,7 +55,8 @@ class Film {
 
   bool get breaksAreCached => breaksCheckedAt != null;
 
-  /// False when TMDB had no runtime — a schedule cannot be built from
-  /// this film until a real duration is known.
+  /// False when the source site had no runtime listed yet (VOX leaves
+  /// this off for titles that haven't opened) — a schedule cannot be
+  /// built from this film until a real duration is known.
   bool get hasKnownDuration => durationMin > 0;
 }

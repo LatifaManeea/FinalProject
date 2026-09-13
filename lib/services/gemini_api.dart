@@ -120,7 +120,7 @@ class GeminiApi {
   /// the film, two breaks starting on the same minute, or prose wrapped
   /// around the JSON. None of that should reach the timeline, and none of
   /// it would survive the `credits_start_min < duration_min` check or the
-  /// `(tmdb_id, start_min)` key if it were ever written to Supabase.
+  /// `(film_id, start_min)` key if it were ever written to Supabase.
   BreaksAnswer readAnswer(String answer, int durationMin) {
     // Models often wrap JSON in a code fence despite being told not to,
     // so take the outermost object rather than the whole string.

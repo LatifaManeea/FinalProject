@@ -122,7 +122,7 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     }
     if (film != null) {
       setState(() => _loadingBreaks = true);
-      final breaks = await appRepository.breaksForFilm(film.tmdbId);
+      final breaks = await appRepository.breaksForFilm(film.filmId);
       if (!mounted) return;
       setState(() {
         _breaks = breaks;

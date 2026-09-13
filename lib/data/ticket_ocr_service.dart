@@ -30,7 +30,7 @@ class FakeTicketOcrService implements TicketOcrService {
     await Future.delayed(const Duration(milliseconds: 1400));
     final now = DateTime.now();
     return ParsedTicket(
-      filmTitleGuess: 'Desert Mirage',
+      filmTitleGuess: 'The Odyssey',
       cinemaNameGuess: 'VOX',
       ticketTimeGuess: DateTime(now.year, now.month, now.day, 21, 0),
       confidence: 0.82,

@@ -5,6 +5,7 @@ import '../models/cinema.dart';
 import '../models/film.dart';
 import '../models/film_break.dart';
 import '../models/schedule.dart';
+import '../models/showtime.dart';
 import '../models/yearly_recap.dart';
 import 'ticked_repository.dart';
 
@@ -37,46 +38,73 @@ class FakeRepository implements TickedRepository {
     Branch(id: 6, cinemaName: 'Cinema House', branchName: 'Granada Mall', lat: 24.7605, lon: 46.7998),
   ];
 
+  // Real titles/durations/posters scraped from ksa.voxcinemas.com's
+  // "what's on" + per-film pages (scripts/vox_scraper.py). `filmId`
+  // below is an arbitrary mock id local to this fake repository —
+  // the real Supabase-backed film_id (see schema.sql) is a separate,
+  // auto-incrementing id assigned when the scraper upserts a film.
   late final List<Film> _films = [
     Film(
-      tmdbId: 1001,
-      title: 'Desert Mirage',
-      durationMin: 114,
-      posterUrl: null,
-      creditsStartMin: 106,
+      filmId: 2001,
+      title: 'The Odyssey',
+      durationMin: 175,
+      posterUrl: 'https://assets.voxcinemas.com/posters/P_HO00013488_1783655908489.jpg',
+      creditsStartMin: 166,
       breaksCheckedAt: DateTime.now().subtract(const Duration(days: 12)),
     ),
     Film(
-      tmdbId: 1002,
-      title: 'The Long Reel',
-      durationMin: 148,
-      posterUrl: null,
-      creditsStartMin: 139,
+      filmId: 2002,
+      title: 'Spider-Man: Brand New Day',
+      durationMin: 145,
+      posterUrl: 'https://assets.voxcinemas.com/posters/P_HO00013065_1782227665332.jpg',
+      creditsStartMin: 136,
       breaksCheckedAt: DateTime.now().subtract(const Duration(days: 3)),
     ),
     Film(
-      tmdbId: 1003,
-      title: 'Marquee Nights',
-      durationMin: 97,
-      posterUrl: null,
+      filmId: 2003,
+      title: 'Practical Magic 2',
+      durationMin: 130,
+      posterUrl: 'https://assets.voxcinemas.com/posters/P_HO00013352_1786338053973.jpg',
       creditsStartMin: null,
       breaksCheckedAt: DateTime.now().subtract(const Duration(days: 40)),
     ),
     // Uncached on purpose — demonstrates the "first person pays the
     // cost" cache-miss flow (section 9 / demo step 8) the moment
     // someone opens it.
-    const Film(tmdbId: 1004, title: 'Second Feature', durationMin: 121),
+    const Film(
+      filmId: 2004,
+      title: 'Coyote VS Acme',
+      durationMin: 100,
+      posterUrl: 'https://assets.voxcinemas.com/posters/P_HO00013137_1786079826557.jpg',
+    ),
   ];
 
   final Map<int, List<FilmBreak>> _breaksByFilm = {
-    1001: const [FilmBreak(startMin: 41, endMin: 46), FilmBreak(startMin: 78, endMin: 82)],
-    1002: const [
+    2001: const [FilmBreak(startMin: 41, endMin: 46), FilmBreak(startMin: 78, endMin: 82)],
+    2002: const [
       FilmBreak(startMin: 35, endMin: 40),
       FilmBreak(startMin: 70, endMin: 74),
       FilmBreak(startMin: 112, endMin: 117),
     ],
-    1003: const [],
+    2003: const [],
   };
+
+  // ---- Showtimes (prototype — see Showtime's doc comment) ------------------
+  // A slice of VOX's own real showtimes (same scrape) at the two VOX
+  // branches already seeded above, enough to build/test the UI against
+  // before this is a real Supabase table.
+  late final List<Showtime> _showtimes = [
+    Showtime(branchId: 1, filmId: 2001, screenType: 'IMAX', time: _todayAt(21, 0)),
+    Showtime(branchId: 1, filmId: 2001, screenType: 'IMAX', time: _todayAt(0, 30, addDays: 1)),
+    Showtime(branchId: 2, filmId: 2001, screenType: 'VIP', time: _todayAt(21, 30), soldOut: true),
+    Showtime(branchId: 1, filmId: 2002, screenType: 'MAX', time: _todayAt(20, 15)),
+    Showtime(branchId: 2, filmId: 2003, screenType: 'Standard', time: _todayAt(19, 45)),
+  ];
+
+  DateTime _todayAt(int hour, int minute, {int addDays = 0}) {
+    final now = DateTime.now().add(Duration(days: addDays));
+    return DateTime(now.year, now.month, now.day, hour, minute);
+  }
 
   Cinema _cinemaByName(String name) => _cinemas.firstWhere((c) => c.name == name);
 
@@ -135,7 +163,7 @@ class FakeRepository implements TickedRepository {
   Future<int> adMinutes(String cinemaName, int durationMin) async =>
       _cinemaByName(cinemaName).adMinutesFor(durationMin);
 
-  // ---- TMDB (fake) ----------------------------------------------------------
+  // ---- Films (fake) ---------------------------------------------------------
 
   @override
   Future<List<Film>> nowShowing() async {
@@ -160,44 +188,44 @@ class FakeRepository implements TickedRepository {
   }
 
   @override
-  Future<Film> filmDetails(int tmdbId) async => _films.firstWhere((f) => f.tmdbId == tmdbId);
+  Future<Film> filmDetails(int filmId) async => _films.firstWhere((f) => f.filmId == filmId);
 
   // ---- Scheduling -----------------------------------------------------------
 
   @override
   Future<Schedule> buildSchedule({
     required int branchId,
-    required int tmdbId,
+    required int filmId,
     required DateTime ticketTime,
   }) async {
     final branch = _branches.firstWhere((b) => b.id == branchId);
-    final film = await filmDetails(tmdbId);
+    final film = await filmDetails(filmId);
     final ad = await adMinutes(branch.cinemaName, film.durationMin);
-    final breaks = await breaksForFilm(tmdbId);
+    final breaks = await breaksForFilm(filmId);
     return Schedule(branch: branch, film: film, ticketTime: ticketTime, adMinutes: ad, breaks: breaks);
   }
 
   @override
-  Future<List<FilmBreak>> breaksForFilm(int tmdbId) async {
-    final film = _films.firstWhere((f) => f.tmdbId == tmdbId, orElse: () => _films.first);
+  Future<List<FilmBreak>> breaksForFilm(int filmId) async {
+    final film = _films.firstWhere((f) => f.filmId == filmId, orElse: () => _films.first);
 
     if (film.breaksAreCached) {
       // Cache hit — including a correct negative cache (checked, none
-      // found), which "Marquee Nights" (1003) demonstrates.
-      return List.unmodifiable(_breaksByFilm[tmdbId] ?? const []);
+      // found), which "Practical Magic 2" (2003) demonstrates.
+      return List.unmodifiable(_breaksByFilm[filmId] ?? const []);
     }
 
     // Cache miss — simulates the Edge Function round trip to Gemini.
-    // Only "Second Feature" (1004) is seeded uncached, matching the
+    // Only "Coyote VS Acme" (2004) is seeded uncached, matching the
     // demo script's "open a second, uncached film" beat.
     await Future.delayed(const Duration(seconds: 2));
     final generated = const [FilmBreak(startMin: 44, endMin: 49)];
-    _breaksByFilm[tmdbId] = generated;
+    _breaksByFilm[filmId] = generated;
 
-    final index = _films.indexWhere((f) => f.tmdbId == tmdbId);
+    final index = _films.indexWhere((f) => f.filmId == filmId);
     if (index != -1) {
       _films[index] = Film(
-        tmdbId: film.tmdbId,
+        filmId: film.filmId,
         title: film.title,
         durationMin: film.durationMin,
         posterUrl: film.posterUrl,
@@ -206,6 +234,14 @@ class FakeRepository implements TickedRepository {
       );
     }
     return generated;
+  }
+
+  // ---- Showtimes (prototype, see Showtime's doc comment) -------------------
+
+  @override
+  Future<List<Showtime>> showtimesForFilm(int filmId) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return List.unmodifiable(_showtimes.where((s) => s.filmId == filmId));
   }
 
   // ---- Attendance -----------------------------------------------------------
