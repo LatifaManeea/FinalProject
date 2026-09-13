@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
 import '../../widgets/auth_error_banner.dart';
-import '../../widgets/brand_header.dart';
+import '../../widgets/auth_hero.dart';
+import '../../widgets/auth_mode_toggle.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/ticked_text_field.dart';
 import '../../widgets/vignette_backdrop.dart';
@@ -98,20 +99,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
       body: VignetteBackdrop(
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+            padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 4),
-                const BrandHeader(compact: true),
-                Padding(
-                  padding: const EdgeInsets.only(top: 22, bottom: 26),
-                  child: Text(
-                    'Create your account',
-                    style: AppTypography.displayMedium,
-                    textAlign: TextAlign.center,
-                  ),
+                const AuthHero(headline: ['JOIN THE', 'SHOW.']),
+                const SizedBox(height: 28),
+                AuthModeToggle(
+                  isSignIn: false,
+                  onSignInTap: _isLoading ? null : widget.onSignIn,
+                  onSignUpTap: null,
                 ),
+                const SizedBox(height: 24),
+                Text(
+                  'Create an account to start tracking true start times.',
+                  style: AppTypography.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 26),
                 AuthErrorBanner(message: _formError),
                 TickedTextField(
                   label: 'Display name',
@@ -173,21 +178,29 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ],
                 ),
                 const SizedBox(height: 22),
-                TickedSecondaryButton(
-                  label: 'Continue with Apple',
-                  icon: Icons.apple,
-                  onPressed: _isLoading ? null : () {},
-                ),
-                const SizedBox(height: 28),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Already have an account? ', style: AppTypography.bodyMedium),
-                    GestureDetector(
-                      onTap: _isLoading ? null : widget.onSignIn,
-                      child: Text('Sign in', style: AppTypography.label.copyWith(color: AppColors.gold)),
+                    Expanded(
+                      child: TickedSecondaryButton(
+                        label: 'Apple',
+                        icon: Icons.apple,
+                        onPressed: _isLoading ? null : () {},
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: TickedSecondaryButton(
+                        label: 'Google',
+                        onPressed: _isLoading ? null : () {},
+                      ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'By continuing you agree to the Terms and Privacy Policy.',
+                  style: AppTypography.bodySmall,
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),

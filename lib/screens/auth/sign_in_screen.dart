@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
 import '../../widgets/auth_error_banner.dart';
-import '../../widgets/brand_header.dart';
+import '../../widgets/auth_hero.dart';
+import '../../widgets/auth_mode_toggle.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/ticked_text_field.dart';
 import '../../widgets/vignette_backdrop.dart';
@@ -89,13 +90,25 @@ class _SignInScreenState extends State<SignInScreen> {
       body: VignetteBackdrop(
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 28, 28, 32),
+            padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 12),
-                const BrandHeader(),
-                const SizedBox(height: 40),
+                const AuthHero(headline: ['WELCOME', 'BACK.']),
+                const SizedBox(height: 28),
+                AuthModeToggle(
+                  isSignIn: true,
+                  onSignInTap: null,
+                  onSignUpTap: _isLoading ? null : widget.onCreateAccount,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Sign in with your email and password to pick up '
+                  'where you left off.',
+                  style: AppTypography.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 26),
                 AuthErrorBanner(message: _formError),
                 TickedTextField(
                   label: 'Email',
@@ -153,24 +166,29 @@ class _SignInScreenState extends State<SignInScreen> {
                   ],
                 ),
                 const SizedBox(height: 22),
-                TickedSecondaryButton(
-                  label: 'Continue with Apple',
-                  icon: Icons.apple,
-                  onPressed: _isLoading ? null : () {},
-                ),
-                const SizedBox(height: 32),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('New here? ', style: AppTypography.bodyMedium),
-                    GestureDetector(
-                      onTap: _isLoading ? null : widget.onCreateAccount,
-                      child: Text(
-                        'Create an account',
-                        style: AppTypography.label.copyWith(color: AppColors.gold),
+                    Expanded(
+                      child: TickedSecondaryButton(
+                        label: 'Apple',
+                        icon: Icons.apple,
+                        onPressed: _isLoading ? null : () {},
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: TickedSecondaryButton(
+                        label: 'Google',
+                        onPressed: _isLoading ? null : () {},
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'By continuing you agree to the Terms and Privacy Policy.',
+                  style: AppTypography.bodySmall,
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
