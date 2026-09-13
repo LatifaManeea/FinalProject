@@ -9,6 +9,18 @@ class AppUser {
     this.avatarUrl,
   });
 
+  /// One row of `profiles`. The row itself is created by the
+  /// `on_auth_user_created` trigger, not by the app — RLS gives the
+  /// client no INSERT on this table.
+  factory AppUser.fromJson(Map<String, dynamic> json) {
+    return AppUser(
+      id: json["profile_id"],
+      email: json["email"],
+      displayName: json["display_name"],
+      avatarUrl: json["avatar_url"],
+    );
+  }
+
   final String id;
   final String email;
   final String displayName;

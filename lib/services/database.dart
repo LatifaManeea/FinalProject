@@ -1,0 +1,271 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../models/app_user.dart';
+import '../models/attendance.dart';
+import '../models/branch.dart';
+import '../models/cinema.dart';
+import '../models/film.dart';
+import '../models/film_break.dart';
+import '../models/yearly_recap.dart';
+
+/// Everything the app asks of Supabase: auth, and the six tables.
+///
+/// `profiles` and `movies_seen` are written only for the signed-in user,
+/// which RLS enforces. `cinemas` and `branches` are read-only reference
+/// data, seeded by hand.
+///
+/// `films` and `breaks` are the shared cache: any signed-in user may
+/// write them, and every user reads what anyone else filled in. That is
+/// deliberate — a film's running time and safe windows are the same for
+/// everyone, so asking Gemini once per film rather than once per person
+/// is the whole point. It does mean the rows are only as trustworthy as
+/// the app writing them, which is why [GeminiApi] validates hard before
+/// anything reaches [addNewFilm] or [addNewBreaks].
+class Database {
+  final supabase = Supabase.instance.client;
+
+  // ---- Auth -------------------------------------------------------------
+
+  /// Email confirmation is on, so this returns no user: Supabase sends
+  /// the link and there is no session until it is clicked. The
+  /// `profiles` row is created by the `on_auth_user_created` trigger
+  /// from the [displayName] passed here.
+  Future<void> signUp(String email, String password, String displayName) async {
+    await supabase.auth.signUp(
+      email: email,
+      password: password,
+      data: {"display_name": displayName},
+    );
+  }
+
+  Future<AppUser> signIn(String email, String password) async {
+    final response = await supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+
+    return getProfile(response.user!.id);
+  }
+
+  Future<void> signOut() async {
+    await supabase.auth.signOut();
+  }
+
+  Future<void> sendPasswordReset(String email) async {
+    await supabase.auth.resetPasswordForEmail(email);
+  }
+
+  /// The signed-in person, or null when the session has expired or the
+  /// email was never confirmed — what the splash screen decides on.
+  Future<AppUser?> getCurrentUser() async {
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      return null;
+    }
+    return getProfile(user.id);
+  }
+
+  Future<AppUser> getProfile(String userId) async {
+    final data = await supabase
+        .from("profiles")
+        .select()
+        .eq("profile_id", userId)
+        .single();
+
+    return AppUser.fromJson(data);
+  }
+
+  Future<void> updateProfile(String userId, String displayName, String? avatarUrl) async {
+    await supabase.from("profiles").update({
+      "display_name": displayName,
+      "avatar_url": avatarUrl,
+    }).eq("profile_id", userId);
+  }
+
+  // ---- Cinemas and branches ---------------------------------------------
+
+  Future<List<Cinema>> getAllCinemas() async {
+    final data = await supabase.from("cinemas").select().order("cinema_name");
+
+    List<Cinema> allCinemas = [];
+
+    for (var element in data) {
+      Cinema cinema = Cinema.fromJson(element);
+      allCinemas.add(cinema);
+    }
+    return allCinemas;
+  }
+
+  Future<List<Branch>> getBranches(String cinemaName) async {
+    final data = await supabase
+        .from("branches")
+        .select()
+        .eq("cinema_name", cinemaName)
+        .order("branch_name");
+
+    List<Branch> allBranches = [];
+
+    for (var element in data) {
+      Branch branch = Branch.fromJson(element);
+      allBranches.add(branch);
+    }
+    return allBranches;
+  }
+
+  // ---- Films and breaks (the shared cache) ------------------------------
+
+  /// The cached film, or null when this tmdb id has never been mirrored
+  /// — in which case the Edge Function has to run before a schedule can
+  /// be built.
+  Future<Film?> getFilm(int tmdbId) async {
+    final data = await supabase
+        .from("films")
+        .select()
+        .eq("tmdb_id", tmdbId)
+        .maybeSingle();
+
+    if (data == null) {
+      return null;
+    }
+    return Film.fromJson(data);
+  }
+
+  /// The safe windows for a film. An empty list is ambiguous on its own
+  /// — it means either "never asked" or "asked, found nothing" — so
+  /// read `Film.breaksAreCached` to tell those apart.
+  Future<List<FilmBreak>> getBreaks(int tmdbId) async {
+    final data = await supabase
+        .from("breaks")
+        .select()
+        .eq("tmdb_id", tmdbId)
+        .order("start_min");
+
+    List<FilmBreak> allBreaks = [];
+
+    for (var element in data) {
+      FilmBreak filmBreak = FilmBreak.fromJson(element);
+      allBreaks.add(filmBreak);
+    }
+    return allBreaks;
+  }
+
+  /// Caches the TMDB mirror and stamps the film as checked.
+  ///
+  /// `breaks_checked_at` is set here rather than by the caller, because
+  /// stamping it is what makes the cache a cache: a non-null timestamp
+  /// with no `breaks` rows means "asked Gemini, found nothing", and is
+  /// what stops the same film being sent to Gemini over and over.
+  ///
+  /// Upsert rather than insert, so two devices opening the same film at
+  /// once do not collide on the `tmdb_id` primary key.
+  Future<void> addNewFilm(Film film) async {
+    await supabase.from("films").upsert({
+      "tmdb_id": film.tmdbId,
+      "title": film.title,
+      "duration_min": film.durationMin,
+      "poster_url": film.posterUrl,
+      "credits_start_min": film.creditsStartMin,
+      "breaks_checked_at": DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
+  /// Caches the safe windows for a film. Call [addNewFilm] first — the
+  /// foreign key on `breaks` needs the film row to exist.
+  Future<void> addNewBreaks(int tmdbId, List<FilmBreak> breaks) async {
+    // Replace rather than append: re-asking Gemini for a film must not
+    // trip the (tmdb_id, start_min) primary key.
+    await supabase.from("breaks").delete().eq("tmdb_id", tmdbId);
+
+    // Nothing found is a real answer, and the stamp on `films` already
+    // recorded it. No rows to write.
+    if (breaks.isEmpty) {
+      return;
+    }
+
+    List<Map<String, dynamic>> rows = [];
+
+    for (var filmBreak in breaks) {
+      rows.add({
+        "tmdb_id": tmdbId,
+        "start_min": filmBreak.startMin,
+        "end_min": filmBreak.endMin,
+      });
+    }
+    await supabase.from("breaks").insert(rows);
+  }
+
+  // ---- Movies seen ------------------------------------------------------
+
+  /// Writes the inputs that produced a schedule, never the schedule
+  /// itself. Returns the new `movie_seen_id`.
+  Future<int> addNewMovieSeen(
+    String userId,
+    int branchId,
+    int tmdbId,
+    DateTime ticketTime,
+  ) async {
+    final data = await supabase
+        .from("movies_seen")
+        .insert({
+          "user_id": userId,
+          "branch_id": branchId,
+          "tmdb_id": tmdbId,
+          "ticket_time": ticketTime.toUtc().toIso8601String(),
+        })
+        .select("movie_seen_id")
+        .single();
+
+    return data["movie_seen_id"];
+  }
+
+  /// One round trip for the History screen. The nested select tells
+  /// PostgREST to embed the related rows through the foreign keys, so
+  /// each entry arrives with its branch, that branch's chain, and the
+  /// film already attached.
+  Future<List<Attendance>> getHistory(String userId) async {
+    final data = await supabase
+        .from("movies_seen")
+        .select("*, branches(*, cinemas(*)), films(*)")
+        .eq("user_id", userId)
+        .order("ticket_time", ascending: false);
+
+    List<Attendance> allSeen = [];
+
+    for (var element in data) {
+      Attendance attendance = Attendance.fromJson(element);
+      allSeen.add(attendance);
+    }
+    return allSeen;
+  }
+
+  /// The recap card's figures for one year, summed on the device from
+  /// the same embedded rows [getHistory] returns.
+  Future<YearlyRecap> getRecap(String userId, int year) async {
+    final data = await supabase
+        .from("movies_seen")
+        .select("*, branches(*, cinemas(*)), films(*)")
+        .eq("user_id", userId)
+        .gte("ticket_time", DateTime.utc(year).toIso8601String())
+        .lt("ticket_time", DateTime.utc(year + 1).toIso8601String());
+
+    int totalAdMinutes = 0;
+    int totalWatchMinutes = 0;
+    Set<String> cinemasVisited = {};
+
+    for (var element in data) {
+      Attendance attendance = Attendance.fromJson(element);
+      totalAdMinutes += attendance.adMinutes;
+      totalWatchMinutes += attendance.durationMin;
+      cinemasVisited.add(attendance.cinemaName);
+    }
+
+    return YearlyRecap(
+      year: year,
+      filmsWatched: data.length,
+      cinemasVisited: cinemasVisited.length,
+      totalAdMinutes: totalAdMinutes,
+      totalWatchMinutes: totalWatchMinutes,
+    );
+  }
+}

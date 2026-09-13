@@ -4,6 +4,13 @@
 class FilmBreak {
   const FilmBreak({required this.startMin, required this.endMin});
 
+  factory FilmBreak.fromJson(Map<String, dynamic> json) {
+    return FilmBreak(
+      startMin: json["start_min"],
+      endMin: json["end_min"],
+    );
+  }
+
   final int startMin;
   final int endMin;
 

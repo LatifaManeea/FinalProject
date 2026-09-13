@@ -34,3 +34,10 @@ String formatCountdown(Duration d) {
   if (hours > 0) return '$hours:$minutes:$seconds';
   return '$minutes:$seconds';
 }
+
+/// `YYYY-MM-DD` — the only date shape TMDB's `discover` filters accept.
+String formatIsoDate(DateTime dt) {
+  final month = dt.month.toString().padLeft(2, '0');
+  final day = dt.day.toString().padLeft(2, '0');
+  return '${dt.year}-$month-$day';
+}

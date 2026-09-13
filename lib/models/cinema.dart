@@ -8,6 +8,14 @@ class Cinema {
     required this.longAdMinutes,
   });
 
+  factory Cinema.fromJson(Map<String, dynamic> json) {
+    return Cinema(
+      name: json["cinema_name"],
+      shortAdMinutes: json["short_ad_minutes"],
+      longAdMinutes: json["long_ad_minutes"],
+    );
+  }
+
   /// Primary key — "VOX", "Muvi", "Scene", "Empire", "Cinema House".
   final String name;
 
