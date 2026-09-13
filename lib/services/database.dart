@@ -33,18 +33,26 @@ class Database {
 
   // ---- Auth -------------------------------------------------------------
 
-  /// Email confirmation is on, so this returns no user: Supabase sends
-  /// the link and there is no session until it is clicked. The
-  /// `profiles` row is created by the `on_auth_user_created` trigger
-  /// from the [displayName] passed here.
+  /// Registers and signs in, in one step. Email confirmation is off in
+  /// the Supabase project, so `signUp` returns a live session and the
+  /// new user goes straight into the app — there is no "check your
+  /// inbox" step any more.
   ///
-  /// Signing up with an address that already exists does *not* throw —
-  /// Supabase answers as if it worked and quietly sends nothing, so
-  /// that a stranger cannot use this form to discover who has an
-  /// account. The screen shows "check your inbox" either way.
-  Future<void> signUp(String email, String password, String displayName) async {
+  /// The `profiles` row is created by the `on_auth_user_created`
+  /// trigger from the [displayName] passed here, so it exists by the
+  /// time [getProfile] is called.
+  ///
+  /// Throws when the address is already registered. That is a real
+  /// change of behaviour from confirmation-on, where Supabase
+  /// deliberately answered as if sign-up had worked so a stranger could
+  /// not use the form to discover who has an account. Without
+  /// confirmation that disclosure is unavoidable: a session either
+  /// comes back or it doesn't.
+  Future<AppUser> signUp(String email, String password, String displayName) async {
+    AuthResponse response;
+
     try {
-      await supabase.auth.signUp(
+      response = await supabase.auth.signUp(
         email: email,
         password: password,
         data: {"display_name": displayName},
@@ -52,16 +60,20 @@ class Database {
     } catch (error) {
       throw readableAuthError(error);
     }
-  }
 
-  /// Sends the confirmation email again — for when the first one never
-  /// arrived, or went to spam.
-  Future<void> resendConfirmation(String email) async {
-    try {
-      await supabase.auth.resend(type: OtpType.signup, email: email);
-    } catch (error) {
-      throw readableAuthError(error);
+    final user = response.user;
+
+    // No user back from a project that should hand one straight over —
+    // almost always confirmation still switched on in the dashboard.
+    // Raised outside the catch above so it isn't rewritten into
+    // readableAuthError's generic network message.
+    if (user == null) {
+      throw Exception(
+        "Account created, but this project still requires email confirmation. "
+        "Check your inbox, or turn confirmation off in Supabase.",
+      );
     }
+    return getProfile(user.id);
   }
 
   Future<AppUser> signIn(String email, String password) async {
@@ -105,6 +117,10 @@ class Database {
     switch (error.code) {
       case "invalid_credentials":
         return Exception("Incorrect email or password.");
+      // Confirmation is off, so this should never fire. Kept because an
+      // account made before it was switched off is still unconfirmed,
+      // and that user needs to be told why they can't get in rather
+      // than shown Supabase's raw message.
       case "email_not_confirmed":
         return Exception("Confirm your email first — check your inbox for the link.");
       case "user_already_exists":

@@ -13,7 +13,7 @@ import 'main_shell.dart';
 
 /// Proposal screen 1 — checks the existing auth session and routes
 /// accordingly. `Database.getCurrentUser` answers from the session
-/// Supabase persists across launches, so a confirmed, signed-in person
+/// Supabase persists across launches, so a signed-in person
 /// lands straight on the shell and everyone else on the auth flow.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
