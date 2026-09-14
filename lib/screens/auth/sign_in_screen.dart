@@ -88,111 +88,122 @@ class _SignInScreenState extends State<SignInScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: VignetteBackdrop(
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const AuthHero(headline: ['WELCOME', 'BACK.']),
-                const SizedBox(height: 28),
-                AuthModeToggle(
-                  isSignIn: true,
-                  onSignInTap: null,
-                  onSignUpTap: _isLoading ? null : widget.onCreateAccount,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Sign in with your email and password to pick up '
-                  'where you left off.',
-                  style: AppTypography.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 26),
-                AuthErrorBanner(message: _formError),
-                TickedTextField(
-                  label: 'Email',
-                  controller: _emailController,
-                  hintText: 'you@example.com',
-                  errorText: _emailError,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.email],
-                ),
-                const SizedBox(height: 20),
-                TickedTextField(
-                  label: 'Password',
-                  controller: _passwordController,
-                  hintText: '••••••••',
-                  errorText: _passwordError,
-                  obscureText: true,
-                  textInputAction: TextInputAction.done,
-                  autofillHints: const [AutofillHints.password],
-                  onSubmitted: (_) => _submit(),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: TextButton(
-                      onPressed: _isLoading ? null : widget.onForgotPassword,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 0),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        child: Column(
+          children: [
+            const AuthHero(headline: ['WELCOME', 'BACK.']),
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 28),
+                      AuthModeToggle(
+                        isSignIn: true,
+                        onSignInTap: null,
+                        onSignUpTap: _isLoading ? null : widget.onCreateAccount,
                       ),
-                      child: Text(
-                        'Forgot password?',
-                        style: AppTypography.label.copyWith(color: AppColors.gold),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Sign in with your email and password to pick up '
+                        'where you left off.',
+                        style: AppTypography.bodyMedium,
+                        textAlign: TextAlign.center,
                       ),
-                    ),
+                      const SizedBox(height: 26),
+                      AuthErrorBanner(message: _formError),
+                      TickedTextField(
+                        label: 'Email',
+                        controller: _emailController,
+                        hintText: 'you@example.com',
+                        errorText: _emailError,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
+                      ),
+                      const SizedBox(height: 20),
+                      TickedTextField(
+                        label: 'Password',
+                        controller: _passwordController,
+                        hintText: '••••••••',
+                        errorText: _passwordError,
+                        obscureText: true,
+                        textInputAction: TextInputAction.done,
+                        autofillHints: const [AutofillHints.password],
+                        onSubmitted: (_) => _submit(),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: TextButton(
+                            onPressed: _isLoading ? null : widget.onForgotPassword,
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 0),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Forgot password?',
+                              style: AppTypography.label.copyWith(color: AppColors.gold),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      TickedPrimaryButton(
+                        label: 'Sign In',
+                        isLoading: _isLoading,
+                        onPressed: _submit,
+                      ),
+                      const SizedBox(height: 22),
+                      Row(
+                        children: [
+                          const Expanded(child: Divider(color: AppColors.divider)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('OR', style: AppTypography.overline),
+                          ),
+                          const Expanded(child: Divider(color: AppColors.divider)),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TickedSecondaryButton(
+                              label: 'Apple',
+                              icon: Icons.apple,
+                              onPressed: _isLoading ? null : () {},
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: TickedSecondaryButton(
+                              label: 'Google',
+                              leading: Text(
+                                'G',
+                                style: AppTypography.label.copyWith(color: AppColors.textPrimary, fontSize: 16),
+                              ),
+                              onPressed: _isLoading ? null : () {},
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 28),
+                      Text(
+                        'By continuing you agree to the Terms and Privacy Policy.',
+                        style: AppTypography.bodySmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 28),
-                TickedPrimaryButton(
-                  label: 'Sign In',
-                  isLoading: _isLoading,
-                  onPressed: _submit,
-                ),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    const Expanded(child: Divider(color: AppColors.divider)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('OR', style: AppTypography.overline),
-                    ),
-                    const Expanded(child: Divider(color: AppColors.divider)),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TickedSecondaryButton(
-                        label: 'Apple',
-                        icon: Icons.apple,
-                        onPressed: _isLoading ? null : () {},
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: TickedSecondaryButton(
-                        label: 'Google',
-                        onPressed: _isLoading ? null : () {},
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  'By continuing you agree to the Terms and Privacy Policy.',
-                  style: AppTypography.bodySmall,
-                  textAlign: TextAlign.center,
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

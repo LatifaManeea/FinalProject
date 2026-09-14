@@ -67,11 +67,23 @@ class _TickedPrimaryButtonState extends State<TickedPrimaryButton> {
 /// Secondary CTA — outlined, low-emphasis actions like "Continue with
 /// Apple".
 class TickedSecondaryButton extends StatelessWidget {
-  const TickedSecondaryButton({super.key, required this.label, required this.onPressed, this.icon});
+  const TickedSecondaryButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.leading,
+  });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+
+  /// Custom leading glyph, used instead of [icon] when the mark isn't a
+  /// plain [IconData] (e.g. the "G" letterform standing in for the
+  /// Google mark, keeping the app's one-accent-hue rule rather than
+  /// pulling in Google's brand colors).
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +100,10 @@ class TickedSecondaryButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (icon != null) ...[
+            if (leading != null) ...[
+              leading!,
+              const SizedBox(width: 8),
+            ] else if (icon != null) ...[
               Icon(icon, size: 18, color: AppColors.textPrimary),
               const SizedBox(width: 8),
             ],
