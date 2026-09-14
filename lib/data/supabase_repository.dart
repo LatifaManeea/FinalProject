@@ -61,6 +61,7 @@ class SupabaseRepository implements TickedRepository {
     'Muvi': 'muvi',
     'Reel': 'reel',
     'CINEHOUSE': 'cinehouse',
+    'Scene': 'scene',
   };
 
   @override

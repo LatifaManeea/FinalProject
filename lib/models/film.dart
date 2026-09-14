@@ -108,7 +108,7 @@ class Film {
     'vox': 'https://ksa.voxcinemas.com/movies/',
     'muvi': 'https://www.muvicinemas.com/en/movies/',
     'cinehouse': 'https://www.cinehousecinema.com/show/',
-    // 'scene': 'https://.../',
+    'scene': 'https://www.scenecinemas.sa/movies/',
     // 'reel': 'https://.../' - no confirmed per-film deep link found; see reel_scraper.py's docstring.
   };
 
