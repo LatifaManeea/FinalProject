@@ -107,9 +107,9 @@ class Film {
   static const Map<String, String> _filmPageBySource = {
     'vox': 'https://ksa.voxcinemas.com/movies/',
     'muvi': 'https://www.muvicinemas.com/en/movies/',
+    'cinehouse': 'https://www.cinehousecinema.com/show/',
     // 'scene': 'https://.../',
-    // 'reel': 'https://.../',
-    // 'cinema-house': 'https://.../',
+    // 'reel': 'https://.../' - no confirmed per-film deep link found; see reel_scraper.py's docstring.
   };
 
   /// The cinema's own page for this film, or null when the film was

@@ -59,6 +59,8 @@ class SupabaseRepository implements TickedRepository {
   static const Map<String, String> _sourceByCinema = {
     'VOX': 'vox',
     'Muvi': 'muvi',
+    'Reel': 'reel',
+    'CINEHOUSE': 'cinehouse',
   };
 
   @override
