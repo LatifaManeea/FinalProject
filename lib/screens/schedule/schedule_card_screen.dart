@@ -48,6 +48,9 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
   List<Film> _filmOptions = [];
   List<Branch> _branchOptions = [];
 
+  /// True while a chosen cinema's branches and films are loading.
+  bool _loadingOptions = false;
+
   Film? _film;
   String? _cinemaName;
   Branch? _branch;
@@ -84,41 +87,56 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
 
   Future<void> _bootstrap() async {
     final cinemas = await appRepository.cinemas();
-    final films = await appRepository.nowShowing();
     if (!mounted) return;
+    setState(() => _cinemas = cinemas);
 
-    // A preselected film must be among the options, or DropdownButton
-    // asserts on a value it can't find. It normally is — `nowShowing`
-    // returns every film — but a film that has since been delisted
-    // would otherwise crash the screen it was opened from.
-    final film = _film;
-    if (film != null && !films.contains(film)) {
-      films.insert(0, film);
+    // The same title is listed separately by every chain (and can be more
+    // than once), so a film only means something within its cinema. A
+    // preselected cinema that isn't a real one — an OCR guess, say — is
+    // dropped along with the film, and the person starts from the cinema.
+    final cinemaName = _cinemaName;
+    if (cinemaName != null && cinemas.any((c) => c.name == cinemaName)) {
+      await _onCinemaChanged(cinemaName, keepFilm: true);
+    } else {
+      setState(() {
+        _cinemaName = null;
+        _film = null;
+      });
     }
-
-    setState(() {
-      _cinemas = cinemas;
-      _filmOptions = films;
-    });
-    if (_cinemaName != null) await _onCinemaChanged(_cinemaName, keepBranch: false);
-    if (_film != null) await _loadBreaksAndAdMinutes();
   }
 
-  Future<void> _onCinemaChanged(String? name, {bool keepBranch = true}) async {
+  /// Order is forced: cinema, then branch, then a film from that cinema's
+  /// own listings. Choosing a cinema clears everything below it.
+  ///
+  /// [keepFilm] keeps a preselected film when it really is one of this
+  /// cinema's listings (opened from the Cinemas tab or a ticket photo).
+  Future<void> _onCinemaChanged(String? name, {bool keepFilm = false}) async {
     if (name == null) return;
+    final previousFilm = _film;
     setState(() {
       _cinemaName = name;
-      if (!keepBranch) _branch = null;
+      _branch = null;
       _branchOptions = [];
+      _filmOptions = [];
+      _film = null;
+      _adMinutes = null;
+      _breaks = [];
+      _breaksFailed = false;
+      _loadingOptions = true;
     });
-    final branches = await appRepository.branches(name);
-    if (!mounted) return;
+
+    final (branches, films) = await (appRepository.branches(name), appRepository.filmsForCinema(name)).wait;
+    // Ignore a slow answer for a cinema the person has already moved off.
+    if (!mounted || _cinemaName != name) return;
+
+    final keptFilm = keepFilm && previousFilm != null && films.contains(previousFilm) ? previousFilm : null;
     setState(() {
       _branchOptions = branches;
-      _branch = branches.isEmpty ? null : branches.first;
+      _filmOptions = films;
+      _film = keptFilm;
+      _loadingOptions = false;
     });
-    // Ad minutes only — a chain change doesn't change a film's breaks.
-    await _loadAdMinutes();
+    if (keptFilm != null) await _loadBreaksAndAdMinutes();
   }
 
   Future<void> _onFilmChanged(Film? film) async {
@@ -345,10 +363,6 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
           _OcrHintBanner(confidence: widget.ocrConfidence!),
           const SizedBox(height: 18),
         ],
-        Text('FILM', style: AppTypography.overline),
-        const SizedBox(height: 8),
-        _buildFilmDropdown(),
-        const SizedBox(height: 20),
         Text('CINEMA', style: AppTypography.overline),
         const SizedBox(height: 8),
         _buildCinemaDropdown(),
@@ -356,6 +370,10 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
         Text('BRANCH', style: AppTypography.overline),
         const SizedBox(height: 8),
         _buildBranchDropdown(),
+        const SizedBox(height: 20),
+        Text('FILM', style: AppTypography.overline),
+        const SizedBox(height: 8),
+        _buildFilmDropdown(),
         const SizedBox(height: 20),
         Text('TICKET TIME', style: AppTypography.overline),
         const SizedBox(height: 8),
@@ -372,33 +390,56 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     );
   }
 
-  Widget _buildFilmDropdown() {
-    return _DropdownShell<Film>(
-      value: _film,
-      hint: 'Choose a film',
-      items: _filmOptions.map((f) => DropdownMenuItem(value: f, child: Text(f.title))).toList(),
-      itemLabel: (f) => f.title,
-      onChanged: _onFilmChanged,
-    );
-  }
-
   Widget _buildCinemaDropdown() {
     return _DropdownShell<String>(
       value: _cinemaName,
-      hint: 'Choose a chain',
+      hint: 'Choose a cinema',
       items: _cinemas.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name))).toList(),
-      itemLabel: (n) => n,
       onChanged: (name) => _onCinemaChanged(name),
     );
   }
 
   Widget _buildBranchDropdown() {
+    final String hint;
+    if (_cinemaName == null) {
+      hint = 'Choose a cinema first';
+    } else if (_loadingOptions) {
+      hint = 'Loading branches…';
+    } else if (_branchOptions.isEmpty) {
+      hint = 'No branches listed for $_cinemaName';
+    } else {
+      hint = 'Choose a branch';
+    }
+
     return _DropdownShell<Branch>(
       value: _branch,
-      hint: _cinemaName == null ? 'Choose a chain first' : 'Choose a branch',
+      hint: hint,
       items: _branchOptions.map((b) => DropdownMenuItem(value: b, child: Text(b.branchName))).toList(),
-      itemLabel: (b) => b.branchName,
-      onChanged: (b) => setState(() => _branch = b),
+      onChanged: _branchOptions.isEmpty ? null : (b) => setState(() => _branch = b),
+    );
+  }
+
+  /// Only the chosen cinema's own listings, and only once a branch is
+  /// picked — so the right one of several same-titled films is chosen.
+  Widget _buildFilmDropdown() {
+    final String hint;
+    if (_cinemaName == null) {
+      hint = 'Choose a cinema first';
+    } else if (_loadingOptions) {
+      hint = 'Loading films…';
+    } else if (_filmOptions.isEmpty) {
+      hint = 'No films listed for $_cinemaName yet';
+    } else if (_branch == null) {
+      hint = 'Choose a branch first';
+    } else {
+      hint = 'Choose a film';
+    }
+
+    return _DropdownShell<Film>(
+      value: _film,
+      hint: hint,
+      items: _filmOptions.map((f) => DropdownMenuItem(value: f, child: Text(f.title))).toList(),
+      onChanged: _branch == null || _filmOptions.isEmpty ? null : _onFilmChanged,
     );
   }
 
@@ -434,7 +475,7 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
             ? '${_film!.title} has no running time listed yet, so its schedule '
                   'can\'t be worked out. Pick another film, or try again once '
                   'the cinema publishes one.'
-            : 'Pick a film, chain and branch to see the real start and end time.',
+            : 'Pick a cinema, branch and film to see the real start and end time.',
         style: AppTypography.bodyMedium,
       ),
     );
@@ -740,7 +781,6 @@ class _DropdownShell<T> extends StatelessWidget {
     required this.value,
     required this.hint,
     required this.items,
-    required this.itemLabel,
     required this.onChanged,
     // ignore: unused_element_parameter
     super.key,
@@ -749,11 +789,14 @@ class _DropdownShell<T> extends StatelessWidget {
   final T? value;
   final String hint;
   final List<DropdownMenuItem<T>> items;
-  final String Function(T) itemLabel;
-  final ValueChanged<T?> onChanged;
+
+  /// Null locks the dropdown (e.g. branch before a cinema is chosen).
+  final ValueChanged<T?>? onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final hintText = Text(hint, style: AppTypography.bodyLarge.copyWith(color: AppColors.textDisabled));
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -765,8 +808,10 @@ class _DropdownShell<T> extends StatelessWidget {
         child: DropdownButton<T>(
           value: value,
           isExpanded: true,
-          hint: Text(hint, style: AppTypography.bodyLarge.copyWith(color: AppColors.textDisabled)),
+          hint: hintText,
+          disabledHint: hintText,
           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textTertiary),
+          iconDisabledColor: AppColors.textDisabled,
           dropdownColor: AppColors.surface2,
           style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.w600),
           items: items,

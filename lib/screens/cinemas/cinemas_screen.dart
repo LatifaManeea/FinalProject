@@ -85,9 +85,11 @@ class _CinemasScreenState extends State<CinemasScreen> {
     );
   }
 
-  Future<void> _openFilm(Film film) async {
+  Future<void> _openFilm(Film film, String cinemaName) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ScheduleCardScreen(preselectedFilm: film)),
+      MaterialPageRoute(
+        builder: (_) => ScheduleCardScreen(preselectedFilm: film, preselectedCinemaName: cinemaName),
+      ),
     );
   }
 
@@ -138,7 +140,7 @@ class _CinemasScreenState extends State<CinemasScreen> {
                           key: _sectionKeys.putIfAbsent(cinema.name, GlobalKey.new),
                           cinema: cinema,
                           filmsFuture: _filmsFor(cinema.name),
-                          onOpenFilm: _openFilm,
+                          onOpenFilm: (film) => _openFilm(film, cinema.name),
                         ),
                   ],
                 );
