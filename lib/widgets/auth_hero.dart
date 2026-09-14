@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
+import 'split_flap_headline.dart';
 
 /// Cinematic top-of-screen hero for the auth flow: a soft, blurred
 /// crop of the real app photo — a vertical beam of gold light, "the
@@ -29,8 +30,54 @@ class AuthHero extends StatelessWidget {
   final String eyebrow;
   final double height;
 
+  static const heroTag = 'auth-hero';
+
   @override
   Widget build(BuildContext context) {
+    // Same tag on Sign In and Sign Up: when one pushes/pops the other, the
+    // photo stays put and only the headline flips, departure-board style.
+    return Hero(
+      tag: heroTag,
+      flightShuttleBuilder: (_, animation, direction, fromContext, toContext) {
+        // The hero contexts belong to the Hero widgets, whose parent is
+        // the AuthHero on each screen.
+        final fromHero = fromContext.findAncestorWidgetOfExactType<AuthHero>()!;
+        final toHero = toContext.findAncestorWidgetOfExactType<AuthHero>()!;
+        return Material(
+          type: MaterialType.transparency,
+          child: AnimatedBuilder(
+            animation: animation,
+            builder: (_, _) => fromHero._build(
+              headline: SplitFlapHeadline(
+                from: fromHero.headline,
+                to: toHero.headline,
+                // The route animation runs 1 -> 0 on pop; flip that so the
+                // board always travels from the page we're leaving.
+                progress: direction == HeroFlightDirection.push ? animation.value : 1 - animation.value,
+                style: AppTypography.displayLarge,
+              ),
+            ),
+          ),
+        );
+      },
+      child: _build(
+        headline: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in headline)
+              Text(
+                line,
+                style: AppTypography.displayLarge,
+                textAlign: TextAlign.left,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _build({required Widget headline}) {
     return SizedBox(
       height: height,
       width: double.infinity,
@@ -65,12 +112,7 @@ class AuthHero extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                for (final line in headline)
-                  Text(
-                    line,
-                    style: AppTypography.displayLarge,
-                    textAlign: TextAlign.left,
-                  ),
+                headline,
               ],
             ),
           ),

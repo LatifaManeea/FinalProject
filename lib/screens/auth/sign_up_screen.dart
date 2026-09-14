@@ -8,6 +8,7 @@ import '../../widgets/auth_mode_toggle.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/ticked_text_field.dart';
 import '../../widgets/vignette_backdrop.dart';
+import 'auth_switch_route.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key, required this.onRegister, required this.onSignIn});
@@ -114,101 +115,109 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         onSignInTap: _isLoading ? null : widget.onSignIn,
                         onSignUpTap: null,
                       ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Create an account to start tracking true start times.',
-                        style: AppTypography.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 26),
-                      AuthErrorBanner(message: _formError),
-                      TickedTextField(
-                        label: 'Display name',
-                        controller: _nameController,
-                        hintText: 'What should we call you?',
-                        errorText: _nameError,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.name],
-                      ),
-                      const SizedBox(height: 20),
-                      TickedTextField(
-                        label: 'Email',
-                        controller: _emailController,
-                        hintText: 'you@example.com',
-                        errorText: _emailError,
-                        keyboardType: TextInputType.emailAddress,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.email],
-                      ),
-                      const SizedBox(height: 20),
-                      TickedTextField(
-                        label: 'Password',
-                        controller: _passwordController,
-                        hintText: '••••••••',
-                        errorText: _passwordError,
-                        obscureText: true,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.newPassword],
-                      ),
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Text('At least 8 characters', style: AppTypography.bodySmall),
-                      ),
-                      TickedTextField(
-                        label: 'Confirm password',
-                        controller: _confirmController,
-                        hintText: '••••••••',
-                        errorText: _confirmError,
-                        obscureText: true,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _submit(),
-                      ),
-                      const SizedBox(height: 28),
-                      TickedPrimaryButton(
-                        label: 'Create Account',
-                        isLoading: _isLoading,
-                        onPressed: _submit,
-                      ),
-                      const SizedBox(height: 22),
-                      Row(
-                        children: [
-                          const Expanded(child: Divider(color: AppColors.divider)),
+                      AuthFormEntrance(
+                        side: 1,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                          const SizedBox(height: 24),
+                          Text(
+                            'Create an account to start tracking true start times.',
+                            style: AppTypography.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 26),
+                          AuthErrorBanner(message: _formError),
+                          TickedTextField(
+                            label: 'Display name',
+                            controller: _nameController,
+                            hintText: 'What should we call you?',
+                            errorText: _nameError,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.name],
+                          ),
+                          const SizedBox(height: 20),
+                          TickedTextField(
+                            label: 'Email',
+                            controller: _emailController,
+                            hintText: 'you@example.com',
+                            errorText: _emailError,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                          ),
+                          const SizedBox(height: 20),
+                          TickedTextField(
+                            label: 'Password',
+                            controller: _passwordController,
+                            hintText: '••••••••',
+                            errorText: _passwordError,
+                            obscureText: true,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.newPassword],
+                          ),
+                          const SizedBox(height: 6),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text('OR', style: AppTypography.overline),
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: Text('At least 8 characters', style: AppTypography.bodySmall),
                           ),
-                          const Expanded(child: Divider(color: AppColors.divider)),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TickedSecondaryButton(
-                              label: 'Apple',
-                              icon: Icons.apple,
-                              onPressed: _isLoading ? null : () {},
-                            ),
+                          TickedTextField(
+                            label: 'Confirm password',
+                            controller: _confirmController,
+                            hintText: '••••••••',
+                            errorText: _confirmError,
+                            obscureText: true,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _submit(),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: TickedSecondaryButton(
-                              label: 'Google',
-                              leading: Text(
-                                'G',
-                                style: AppTypography.label.copyWith(color: AppColors.textPrimary, fontSize: 16),
+                          const SizedBox(height: 28),
+                          TickedPrimaryButton(
+                            label: 'Create Account',
+                            isLoading: _isLoading,
+                            onPressed: _submit,
+                          ),
+                          const SizedBox(height: 22),
+                          Row(
+                            children: [
+                              const Expanded(child: Divider(color: AppColors.divider)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('OR', style: AppTypography.overline),
                               ),
-                              onPressed: _isLoading ? null : () {},
-                            ),
+                              const Expanded(child: Divider(color: AppColors.divider)),
+                            ],
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 28),
-                      Text(
-                        'By continuing you agree to the Terms and Privacy Policy.',
-                        style: AppTypography.bodySmall,
-                        textAlign: TextAlign.center,
+                          const SizedBox(height: 22),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TickedSecondaryButton(
+                                  label: 'Apple',
+                                  icon: Icons.apple,
+                                  onPressed: _isLoading ? null : () {},
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: TickedSecondaryButton(
+                                  label: 'Google',
+                                  leading: Text(
+                                    'G',
+                                    style: AppTypography.label.copyWith(color: AppColors.textPrimary, fontSize: 16),
+                                  ),
+                                  onPressed: _isLoading ? null : () {},
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 28),
+                          Text(
+                            'By continuing you agree to the Terms and Privacy Policy.',
+                            style: AppTypography.bodySmall,
+                            textAlign: TextAlign.center,
+                          ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

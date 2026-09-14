@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../services/database.dart';
 import '../main_shell.dart';
+import 'auth_switch_route.dart';
 import 'forgot_password_screen.dart';
+import 'set_new_password_screen.dart';
 import 'sign_in_screen.dart';
 import 'sign_up_screen.dart';
 
@@ -34,7 +36,7 @@ class AuthFlow extends StatelessWidget {
         if (context.mounted) _goToMainShell(context);
       },
       onCreateAccount: () => Navigator.of(context).push(
-        MaterialPageRoute(
+        AuthSwitchRoute(
           builder: (signUpContext) => SignUpScreen(
             onRegister: (name, email, password) async {
               // Confirmation is off, so signing up returns a live
@@ -48,9 +50,42 @@ class AuthFlow extends StatelessWidget {
       ),
       onForgotPassword: () => Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => ForgotPasswordScreen(onSendReset: database.sendPasswordReset),
+          builder: (forgotContext) => ForgotPasswordScreen(
+            onSendReset: database.sendPasswordReset,
+            onVerifyCode: (email, code) async {
+              // A correct code signs the user in with a recovery session;
+              // nothing but choosing a new password should be reachable.
+              await database.verifyResetCode(email, code);
+              if (forgotContext.mounted) _goToSetNewPassword(forgotContext, database);
+            },
+          ),
         ),
       ),
+    );
+  }
+
+  void _goToSetNewPassword(BuildContext context, Database database) {
+    final navigator = Navigator.of(context);
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => SetNewPasswordScreen(
+          onSave: (password) async {
+            await database.updatePassword(password);
+            navigator.pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const MainShell()),
+              (route) => false,
+            );
+          },
+          onCancel: () async {
+            await database.signOut();
+            navigator.pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const AuthFlow()),
+              (route) => false,
+            );
+          },
+        ),
+      ),
+      (route) => false,
     );
   }
 }

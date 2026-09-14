@@ -99,9 +99,37 @@ class Database {
     await supabase.auth.signOut();
   }
 
+  /// Emails a one-time reset code — not a link.
+  ///
+  /// A link would redirect to the project's Site URL (localhost by
+  /// default) or need deep-link setup, and with PKCE it only works on the
+  /// device that asked for it. A code typed into the app works wherever
+  /// the email is read. This relies on the dashboard's "Reset Password"
+  /// email template printing `{{ .Token }}`; the stock template only has
+  /// the link.
   Future<void> sendPasswordReset(String email) async {
     try {
       await supabase.auth.resetPasswordForEmail(email);
+    } catch (error) {
+      throw readableAuthError(error);
+    }
+  }
+
+  /// Trades the emailed reset code for a signed-in recovery session, which
+  /// is what lets [updatePassword] run next.
+  Future<void> verifyResetCode(String email, String code) async {
+    try {
+      await supabase.auth.verifyOTP(email: email, token: code, type: OtpType.recovery);
+    } catch (error) {
+      throw readableAuthError(error);
+    }
+  }
+
+  /// Sets a new password for the signed-in user — during recovery, the
+  /// session [verifyResetCode] just created.
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      await supabase.auth.updateUser(UserAttributes(password: newPassword));
     } catch (error) {
       throw readableAuthError(error);
     }
@@ -134,6 +162,11 @@ class Database {
         return Exception("An account with that email already exists.");
       case "weak_password":
         return Exception("That password is too weak — try a longer one.");
+      case "same_password":
+        return Exception("That's already your password — choose a different one.");
+      // Supabase answers a mistyped code and an expired one the same way.
+      case "otp_expired":
+        return Exception("That code is wrong or has expired. Check it, or send a new one.");
       case "over_email_send_rate_limit":
       case "over_request_rate_limit":
         return Exception("Too many attempts. Wait a minute, then try again.");
