@@ -24,10 +24,11 @@ class CinemaJumpRequest {
 /// The tab that replaced History — one horizontally scrollable row of
 /// films per chain, five rows down the page.
 ///
-/// Only VOX is scraped today ([Database.getFilmsForCinema] returns
-/// nothing for the other four), so every row currently shows VOX's
-/// films; the mirroring lives in the repository, not here, so this
-/// screen needs no change once the other scrapers land.
+/// VOX and Muvi are scraped today ([SupabaseRepository.filmsForCinema]
+/// returns nothing for the other three), so those two rows show real
+/// listings and the rest show the empty state; the mirroring lives in
+/// the repository, not here, so this screen needs no change once the
+/// remaining scrapers land.
 class CinemasScreen extends StatefulWidget {
   const CinemasScreen({super.key, this.jumpTo});
 
@@ -190,6 +191,22 @@ class _CinemaRow extends StatelessWidget {
             child: FutureBuilder<List<Film>>(
               future: filmsFuture,
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  // TEMP DIAGNOSTIC: surfaces the real error instead of an
+                  // endless spinner. Remove once the cause is found.
+                  // ignore: avoid_print
+                  print('filmsFuture error for ${cinema.name}: ${snapshot.error}');
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        '${cinema.name} error: ${snapshot.error}',
+                        style: AppTypography.bodySmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
+                }
                 if (!snapshot.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),

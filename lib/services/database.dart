@@ -31,11 +31,10 @@ import '../models/yearly_recap.dart';
 class Database {
   final supabase = Supabase.instance.client;
 
-  /// Every read of `films` embeds its movie. A film row is one cinema's
-  /// listing; the credits minute and the breaks-checked stamp belong to
-  /// the movie, in `movies`, so a listing without its movie can't say
-  /// whether breaks are cached. See scripts/add_movies_table.sql.
-  static const String filmWithMovie = "*, movies(*)";
+  /// There is no separate `movies` table any more — a film row carries
+  /// its own credits minute and breaks-checked stamp directly, so a
+  /// plain `select()` already has everything [Film.fromJson] needs.
+  static const String filmWithMovie = "*";
 
   // ---- Auth -------------------------------------------------------------
 
@@ -300,17 +299,17 @@ class Database {
     return Film.fromJson(data);
   }
 
-  /// The safe windows for a movie. An empty list is ambiguous on its own
+  /// The safe windows for a film. An empty list is ambiguous on its own
   /// — it means either "never asked" or "asked, found nothing" — so
   /// read `Film.breaksAreCached` to tell those apart.
   ///
-  /// Keyed on the movie, not a cinema's listing: every cinema showing
-  /// The Odyssey reads the same rows.
+  /// Keyed on the film's own row — there is no shared `movies` table any
+  /// more, so two chains listing the same title cache separately.
   Future<List<FilmBreak>> getBreaks(int movieId) async {
     final data = await supabase
         .from("breaks")
         .select()
-        .eq("movie_id", movieId)
+        .eq("film_id", movieId)
         .order("start_min");
 
     List<FilmBreak> allBreaks = [];
@@ -322,32 +321,30 @@ class Database {
     return allBreaks;
   }
 
-  /// Stamps the movie as checked once Gemini has answered for it, and
-  /// stores the credits minute it found.
+  /// Stamps this film's listing as checked once Gemini has answered for
+  /// it, and stores the credits minute it found.
   ///
   /// `breaks_checked_at` is set here rather than by the caller, because
   /// stamping it is what makes the cache a cache: a non-null timestamp
   /// with no `breaks` rows means "asked Gemini, found nothing", and is
-  /// what stops the same movie being sent to Gemini over and over.
+  /// what stops the same film being sent to Gemini over and over.
   ///
-  /// Written to `movies`, not `films`: the answer belongs to the movie,
-  /// so a second cinema listing the same movie finds it already stamped.
-  /// An update, never an insert — movies are created by a database
-  /// trigger when the scraper inserts a film.
+  /// Written to `films` directly — there is no separate `movies` table
+  /// any more, so each chain's listing of a title stamps its own row.
   Future<void> markBreaksChecked(int movieId, int? creditsStartMin) async {
-    await supabase.from("movies").update({
+    await supabase.from("films").update({
       "credits_start_min": creditsStartMin,
       "breaks_checked_at": DateTime.now().toUtc().toIso8601String(),
-    }).eq("movie_id", movieId);
+    }).eq("film_id", movieId);
   }
 
-  /// Caches the safe windows for a movie. Call [markBreaksChecked] too.
+  /// Caches the safe windows for a film. Call [markBreaksChecked] too.
   Future<void> addNewBreaks(int movieId, List<FilmBreak> breaks) async {
-    // Replace rather than append: re-asking Gemini for a movie must not
-    // trip the (movie_id, start_min) primary key.
-    await supabase.from("breaks").delete().eq("movie_id", movieId);
+    // Replace rather than append: re-asking Gemini for a film must not
+    // trip the (film_id, start_min) primary key.
+    await supabase.from("breaks").delete().eq("film_id", movieId);
 
-    // Nothing found is a real answer, and the stamp on `movies` already
+    // Nothing found is a real answer, and the stamp on `films` already
     // recorded it. No rows to write.
     if (breaks.isEmpty) {
       return;
@@ -357,7 +354,7 @@ class Database {
 
     for (var filmBreak in breaks) {
       rows.add({
-        "movie_id": movieId,
+        "film_id": movieId,
         "start_min": filmBreak.startMin,
         "end_min": filmBreak.endMin,
         "is_estimated": filmBreak.isEstimated,

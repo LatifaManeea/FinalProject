@@ -1,10 +1,12 @@
-/// One cinema's listing of a film — a row of `films` — together with
-/// the Gemini answers that belong to the movie itself, from `movies`.
+/// One cinema's listing of a film — a row of `films`, carrying its own
+/// Gemini answers (`credits_start_min`, `breaks_checked_at`) directly.
 ///
-/// The split matters once more than one cinema is scraped: The Odyssey
-/// at VOX and The Odyssey at Muvi are two films (two listings, two
-/// posters, two booking pages) but one movie, with one set of breaks
-/// asked for once. See scripts/add_movies_table.sql.
+/// There used to be a separate `movies` table shared across chains, so
+/// VOX's and Muvi's listings of the same title asked Gemini once between
+/// them (see the old scripts/add_movies_table.sql). That table has been
+/// dropped — each cinema's listing now caches its own answer, so the
+/// same title showing at two chains asks Gemini twice. Simpler, at that
+/// cost.
 ///
 /// `breaksCheckedAt` is the two-state-encodes-three-outcomes column from
 /// the proposal: null means never asked; non-null with no [FilmBreak]
@@ -27,12 +29,13 @@ class Film {
   /// it) the credits and checked-at simply come through null; nothing
   /// that reads history uses them.
   factory Film.fromJson(Map<String, dynamic> json) {
-    final movie = json["movies"];
-    final checkedAt = movie?["breaks_checked_at"];
+    final checkedAt = json["breaks_checked_at"];
 
     return Film(
       filmId: json["film_id"],
-      movieId: json["movie_id"],
+      // No separate `movies` table any more — this listing's own row is
+      // what breaks/credits are cached against, so this is just filmId.
+      movieId: json["film_id"],
       title: json["title"],
       // `duration_min` is nullable in the schema — VOX leaves the
       // runtime off titles that haven't opened yet. 0 carries that
@@ -41,7 +44,7 @@ class Film {
       source: json["source"],
       sourceSlug: json["source_slug"],
       posterUrl: json["poster_url"],
-      creditsStartMin: movie?["credits_start_min"],
+      creditsStartMin: json["credits_start_min"],
       breaksCheckedAt: checkedAt == null ? null : DateTime.parse(checkedAt).toLocal(),
     );
   }
@@ -49,8 +52,8 @@ class Film {
   /// This cinema's listing.
   final int filmId;
 
-  /// The movie this listing is of — what breaks are cached against, so
-  /// every cinema showing it shares one answer.
+  /// Breaks/credits are cached against this — equal to [filmId] now
+  /// that there is no separate `movies` table (see the class doc).
   final int movieId;
 
   final String title;
@@ -103,7 +106,7 @@ class Film {
   /// exist there are no films with those sources anyway.
   static const Map<String, String> _filmPageBySource = {
     'vox': 'https://ksa.voxcinemas.com/movies/',
-    // 'muvi': 'https://.../',
+    'muvi': 'https://www.muvicinemas.com/en/movies/',
     // 'scene': 'https://.../',
     // 'reel': 'https://.../',
     // 'cinema-house': 'https://.../',
