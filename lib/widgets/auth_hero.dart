@@ -50,11 +50,12 @@ class AuthHero extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 0,
-            right: 0,
+            left: 28,
+            right: 28,
             bottom: 18,
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   eyebrow,
@@ -68,7 +69,7 @@ class AuthHero extends StatelessWidget {
                   Text(
                     line,
                     style: AppTypography.displayLarge,
-                    textAlign: TextAlign.center,
+                    textAlign: TextAlign.left,
                   ),
               ],
             ),
