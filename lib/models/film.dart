@@ -1,13 +1,18 @@
-/// Mirrors `films`. `breaksCheckedAt` is the two-state-encodes-three-outcomes
-/// column from the proposal: null means never asked; non-null with no
-/// [FilmBreak] rows means asked and nothing usable was found.
+/// One cinema's listing of a film — a row of `films` — together with
+/// the Gemini answers that belong to the movie itself, from `movies`.
 ///
-/// Populated by scraping cinema sites directly (VOX Cinemas first —
-/// see scripts/vox_scraper.py) rather than TMDB: `filmId` is a plain
-/// auto-incrementing id, not any third party's id.
+/// The split matters once more than one cinema is scraped: The Odyssey
+/// at VOX and The Odyssey at Muvi are two films (two listings, two
+/// posters, two booking pages) but one movie, with one set of breaks
+/// asked for once. See scripts/add_movies_table.sql.
+///
+/// `breaksCheckedAt` is the two-state-encodes-three-outcomes column from
+/// the proposal: null means never asked; non-null with no [FilmBreak]
+/// rows means asked and nothing usable was found.
 class Film {
   const Film({
     required this.filmId,
+    required this.movieId,
     required this.title,
     required this.durationMin,
     this.source,
@@ -17,14 +22,17 @@ class Film {
     this.breaksCheckedAt,
   });
 
-  /// One row of `films`. Written by the scraper's sync job (service
-  /// role) and, for the shared breaks cache, by any signed-in client —
-  /// see database.dart.
+  /// A `films` row, ideally with its movie embedded — queried as
+  /// `select("*, movies(*)")`. Without the embed (history rows don't need
+  /// it) the credits and checked-at simply come through null; nothing
+  /// that reads history uses them.
   factory Film.fromJson(Map<String, dynamic> json) {
-    final checkedAt = json["breaks_checked_at"];
+    final movie = json["movies"];
+    final checkedAt = movie?["breaks_checked_at"];
 
     return Film(
       filmId: json["film_id"],
+      movieId: json["movie_id"],
       title: json["title"],
       // `duration_min` is nullable in the schema — VOX leaves the
       // runtime off titles that haven't opened yet. 0 carries that
@@ -33,12 +41,18 @@ class Film {
       source: json["source"],
       sourceSlug: json["source_slug"],
       posterUrl: json["poster_url"],
-      creditsStartMin: json["credits_start_min"],
+      creditsStartMin: movie?["credits_start_min"],
       breaksCheckedAt: checkedAt == null ? null : DateTime.parse(checkedAt).toLocal(),
     );
   }
 
+  /// This cinema's listing.
   final int filmId;
+
+  /// The movie this listing is of — what breaks are cached against, so
+  /// every cinema showing it shares one answer.
+  final int movieId;
+
   final String title;
   final int durationMin;
 
@@ -60,6 +74,7 @@ class Film {
   Film copyWith({int? creditsStartMin, DateTime? breaksCheckedAt}) {
     return Film(
       filmId: filmId,
+      movieId: movieId,
       title: title,
       durationMin: durationMin,
       source: source,

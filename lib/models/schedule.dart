@@ -59,8 +59,11 @@ class Schedule {
       );
     }
 
+    // Credits starting at the runtime means "not known" — the film is
+    // treated as running to its end, and there is no credits span to
+    // draw. Only a real, earlier credits minute gets a segment.
     final creditsStart = film.creditsStartMin;
-    if (creditsStart != null) {
+    if (creditsStart != null && creditsStart < film.durationMin) {
       segments.add(
         TimelineSegment(
           kind: TimelineSegmentKind.credits,

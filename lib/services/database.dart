@@ -16,10 +16,10 @@ import '../models/yearly_recap.dart';
 /// data; `branches` is additionally kept in sync by the VOX scraper for
 /// VOX's own branches (see scripts/sync_to_supabase.py).
 ///
-/// `films` and `breaks` are the shared cache: any signed-in user may
+/// `movies` and `breaks` are the shared cache: any signed-in user may
 /// write them, and every user reads what anyone else filled in. That is
-/// deliberate — a film's running time and safe windows are the same for
-/// everyone, so asking Gemini once per film rather than once per person
+/// deliberate — a movie's safe windows are the same for
+/// everyone, at every cinema, so asking Gemini once per movie rather than once per person
 /// is the whole point. It does mean the rows are only as trustworthy as
 /// the app writing them, which is why [GeminiApi] validates hard before
 /// anything reaches [markBreaksChecked] or [addNewBreaks].
@@ -30,6 +30,12 @@ import '../models/yearly_recap.dart';
 /// the app is meant to write one.
 class Database {
   final supabase = Supabase.instance.client;
+
+  /// Every read of `films` embeds its movie. A film row is one cinema's
+  /// listing; the credits minute and the breaks-checked stamp belong to
+  /// the movie, in `movies`, so a listing without its movie can't say
+  /// whether breaks are cached. See scripts/add_movies_table.sql.
+  static const String filmWithMovie = "*, movies(*)";
 
   // ---- Auth -------------------------------------------------------------
 
@@ -216,7 +222,7 @@ class Database {
   /// included: the picker shows them, and `Film.hasKnownDuration` is
   /// what stops a schedule being built from one.
   Future<List<Film>> getNowShowing() async {
-    final data = await supabase.from("films").select().order("title");
+    final data = await supabase.from("films").select(filmWithMovie).order("title");
 
     List<Film> allFilms = [];
 
@@ -233,7 +239,7 @@ class Database {
   Future<List<Film>> searchFilmsByTitle(String query) async {
     final data = await supabase
         .from("films")
-        .select()
+        .select(filmWithMovie)
         .ilike("title", "%$query%")
         .order("title");
 
@@ -251,7 +257,7 @@ class Database {
   Future<Film?> getFilm(int filmId) async {
     final data = await supabase
         .from("films")
-        .select()
+        .select(filmWithMovie)
         .eq("film_id", filmId)
         .maybeSingle();
 
@@ -261,14 +267,17 @@ class Database {
     return Film.fromJson(data);
   }
 
-  /// The safe windows for a film. An empty list is ambiguous on its own
+  /// The safe windows for a movie. An empty list is ambiguous on its own
   /// — it means either "never asked" or "asked, found nothing" — so
   /// read `Film.breaksAreCached` to tell those apart.
-  Future<List<FilmBreak>> getBreaks(int filmId) async {
+  ///
+  /// Keyed on the movie, not a cinema's listing: every cinema showing
+  /// The Odyssey reads the same rows.
+  Future<List<FilmBreak>> getBreaks(int movieId) async {
     final data = await supabase
         .from("breaks")
         .select()
-        .eq("film_id", filmId)
+        .eq("movie_id", movieId)
         .order("start_min");
 
     List<FilmBreak> allBreaks = [];
@@ -280,32 +289,32 @@ class Database {
     return allBreaks;
   }
 
-  /// Stamps the film as checked once Gemini has answered for it, and
+  /// Stamps the movie as checked once Gemini has answered for it, and
   /// stores the credits minute it found.
   ///
   /// `breaks_checked_at` is set here rather than by the caller, because
   /// stamping it is what makes the cache a cache: a non-null timestamp
   /// with no `breaks` rows means "asked Gemini, found nothing", and is
-  /// what stops the same film being sent to Gemini over and over.
+  /// what stops the same movie being sent to Gemini over and over.
   ///
-  /// An update, never an insert — every film row is created by a
-  /// scraper, which owns `source`, `source_slug` and the runtime. The
-  /// app only ever fills in the two columns Gemini answers for.
-  Future<void> markBreaksChecked(int filmId, int? creditsStartMin) async {
-    await supabase.from("films").update({
+  /// Written to `movies`, not `films`: the answer belongs to the movie,
+  /// so a second cinema listing the same movie finds it already stamped.
+  /// An update, never an insert — movies are created by a database
+  /// trigger when the scraper inserts a film.
+  Future<void> markBreaksChecked(int movieId, int? creditsStartMin) async {
+    await supabase.from("movies").update({
       "credits_start_min": creditsStartMin,
       "breaks_checked_at": DateTime.now().toUtc().toIso8601String(),
-    }).eq("film_id", filmId);
+    }).eq("movie_id", movieId);
   }
 
-  /// Caches the safe windows for a film. Call [markBreaksChecked] too —
-  /// foreign key on `breaks` needs the film row to exist.
-  Future<void> addNewBreaks(int filmId, List<FilmBreak> breaks) async {
-    // Replace rather than append: re-asking Gemini for a film must not
-    // trip the (film_id, start_min) primary key.
-    await supabase.from("breaks").delete().eq("film_id", filmId);
+  /// Caches the safe windows for a movie. Call [markBreaksChecked] too.
+  Future<void> addNewBreaks(int movieId, List<FilmBreak> breaks) async {
+    // Replace rather than append: re-asking Gemini for a movie must not
+    // trip the (movie_id, start_min) primary key.
+    await supabase.from("breaks").delete().eq("movie_id", movieId);
 
-    // Nothing found is a real answer, and the stamp on `films` already
+    // Nothing found is a real answer, and the stamp on `movies` already
     // recorded it. No rows to write.
     if (breaks.isEmpty) {
       return;
@@ -315,7 +324,7 @@ class Database {
 
     for (var filmBreak in breaks) {
       rows.add({
-        "film_id": filmId,
+        "movie_id": movieId,
         "start_min": filmBreak.startMin,
         "end_min": filmBreak.endMin,
         "is_estimated": filmBreak.isEstimated,
@@ -359,7 +368,7 @@ class Database {
   Future<List<Film>> getFilmsBySource(String source) async {
     final data = await supabase
         .from("films")
-        .select()
+        .select(filmWithMovie)
         .eq("source", source)
         .order("title");
 

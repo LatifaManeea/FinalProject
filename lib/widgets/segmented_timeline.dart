@@ -79,9 +79,16 @@ class SegmentedTimeline extends StatelessWidget {
               return w < 1.0 ? 1.0 : w;
             }
 
+            // Both `fit: expand` and `stretch` are load-bearing. The base
+            // spans are empty ColoredBoxes, which have no height of their
+            // own: without these, a Row hands them loose vertical
+            // constraints and they collapse to 0px — the ad block and the
+            // film silently vanish and only the positioned breaks show.
             return Stack(
+              fit: StackFit.expand,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final s in base)
                       Expanded(

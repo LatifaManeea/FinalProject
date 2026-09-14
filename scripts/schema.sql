@@ -40,6 +40,7 @@ drop table if exists showtimes;
 drop table if exists movies_seen;
 drop table if exists breaks;
 drop table if exists films;
+drop table if exists movies;
 drop table if exists branches;
 drop table if exists cinemas;
 
@@ -110,20 +111,71 @@ create policy "branches are readable by any signed-in user"
 -- No insert/update policy for `authenticated` — VOX branches are
 -- written only by the scraper's service-role key.
 
+-- ---- movies -------------------------------------------------------------
+-- One row per actual film, shared by every cinema listing it. Owns the
+-- Gemini answers, so each movie is asked about once however many
+-- cinemas show it. See add_movies_table.sql for the full reasoning.
+
+create table movies (
+  movie_id          bigint generated always as identity primary key,
+  title             text not null,
+  credits_start_min integer,
+  breaks_checked_at timestamptz
+);
+
+alter table movies enable row level security;
+
+create policy "movies are readable by any signed-in user"
+  on movies for select
+  to authenticated
+  using (true);
+
+create policy "movies are updatable by any signed-in user"
+  on movies for update
+  to authenticated
+  using (true)
+  with check (true);
+
 -- ---- films --------------------------------------------------------------
+-- One row per cinema listing. movie_id is filled by the trigger below
+-- when the scraper doesn't set it.
 
 create table films (
   film_id           bigint generated always as identity primary key,
+  movie_id          bigint not null references movies(movie_id),
   source            text not null,   -- 'vox' today; another cinema site's slug later
   source_slug       text not null,   -- that site's own slug/id for this film
   title             text not null,
   duration_min      integer,         -- null until the site itself lists a runtime
   poster_url        text,
-  credits_start_min integer,
-  breaks_checked_at timestamptz,
   scraped_at        timestamptz not null default now(),
   unique (source, source_slug)
 );
+
+-- Gives each new film a movie, so the scraper needs no changes. Looks up
+-- an existing (source, source_slug) first: the scraper upserts, and a
+-- BEFORE INSERT trigger fires even when the upsert becomes an update —
+-- creating unconditionally would orphan a movie per film per daily run.
+create or replace function films_assign_movie() returns trigger
+language plpgsql as $$
+begin
+  if new.movie_id is null then
+    select movie_id into new.movie_id
+    from films
+    where source = new.source and source_slug = new.source_slug;
+
+    if new.movie_id is null then
+      insert into movies (title) values (new.title)
+      returning movie_id into new.movie_id;
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+create trigger films_assign_movie
+  before insert on films
+  for each row execute function films_assign_movie();
 
 alter table films enable row level security;
 
@@ -148,7 +200,7 @@ create policy "films are updatable by any signed-in user"
 -- never a tmdb id — this table just now keys on film_id instead.
 
 create table breaks (
-  film_id      bigint not null references films(film_id) on delete cascade,
+  movie_id     bigint not null references movies(movie_id) on delete cascade,
   start_min    integer not null,
   end_min      integer not null,
   -- False when Gemini knew this specific film's scenes, true when it
@@ -158,7 +210,7 @@ create table breaks (
   -- Schedule Card labels estimates rather than passing them off as
   -- researched fact.
   is_estimated boolean not null default false,
-  primary key (film_id, start_min)
+  primary key (movie_id, start_min)
 );
 
 alter table breaks enable row level security;

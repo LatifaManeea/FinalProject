@@ -86,23 +86,30 @@ abstract final class AppColors {
   // ---------------------------------------------------------------------------
   //
   // The segmented timeline (F4) draws four spans: ad block, film, safe breaks
-  // and credits. They separate by *value*, not by hue — introducing a second
-  // accent colour here is what would turn the screen into a dashboard. The ad
-  // block is gold because it is the thing the project measured and the thing
-  // the demo points at.
+  // and credits. Every one has to read against the dark card behind it AND
+  // against the span next to it — the first version separated them by value
+  // alone (film was surface2, credits was divider), and on a #150D09 card
+  // those were effectively invisible.
+  //
+  // So: gold for the ads, because they are what the project measured; a warm
+  // mid-grey for the film, clearly visible but quiet; a soft sage green for
+  // the breaks, the one extra hue, because "safe to step out" is the thing a
+  // person is scanning for; and a lighter grey for credits so it separates
+  // from the film it sits on the end of.
 
   /// The advertising block — the measured span, drawn in the accent.
   static const Color timelineAds = gold;
 
-  /// The film itself — the long, quiet span.
-  static const Color timelineFilm = surface2;
+  /// The film itself — the long span. Visible, but never louder than ads.
+  static const Color timelineFilm = Color(0xFF5A4D44);
 
-  /// A safe break — dimmed gold against the film.
-  static const Color timelineBreak = goldDim;
+  /// A safe break — sage green, the only non-gold hue on the timeline, so
+  /// the windows jump out of the film they sit inside.
+  static const Color timelineBreak = Color(0xFF7FB77E);
 
-  /// Closing credits. Omitted entirely when `films.credits_start_min` is null,
-  /// so this colour is allowed to be nearly invisible.
-  static const Color timelineCredits = divider;
+  /// Closing credits — lighter than the film so the end of the film reads.
+  /// Only drawn when a real credits minute is known.
+  static const Color timelineCredits = Color(0xFFA2958B);
 
   /// The playhead marking the current minute during a live session.
   static const Color timelinePlayhead = textPrimary;

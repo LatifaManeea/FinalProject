@@ -57,6 +57,11 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
   List<FilmBreak> _breaks = [];
   bool _loadingBreaks = false;
 
+  /// Set when the breaks lookup failed, so the card can say so in place
+  /// with a retry — rather than implying the film has no safe breaks,
+  /// which is a different thing entirely.
+  bool _breaksFailed = false;
+
   DateTime? _liveStartedAt;
   Timer? _ticker;
   bool _demoSpeedEnabled = false;
@@ -112,7 +117,8 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
       _branchOptions = branches;
       _branch = branches.isEmpty ? null : branches.first;
     });
-    await _loadBreaksAndAdMinutes();
+    // Ad minutes only — a chain change doesn't change a film's breaks.
+    await _loadAdMinutes();
   }
 
   Future<void> _onFilmChanged(Film? film) async {
@@ -125,28 +131,62 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
   }
 
   Future<void> _loadBreaksAndAdMinutes() async {
+    await _loadAdMinutes();
+    await _loadBreaks();
+  }
+
+  /// Depends on the chain and the film's length — cheap, a cached
+  /// `cinemas` lookup.
+  Future<void> _loadAdMinutes() async {
     final film = _film;
     final cinemaName = _cinemaName;
     if (film != null && cinemaName != null) {
       final ad = await appRepository.adMinutes(cinemaName, film.durationMin);
       if (mounted) setState(() => _adMinutes = ad);
     }
+  }
+
+  /// Depends on the film ONLY — never the cinema or branch. Kept apart
+  /// from [_loadAdMinutes] so changing chain doesn't re-run it: on a film
+  /// whose breaks aren't cached yet, every rerun can reach Gemini, and
+  /// flipping between chains would spend daily quota for nothing.
+  Future<void> _loadBreaks() async {
+    final film = _film;
     if (film != null) {
-      setState(() => _loadingBreaks = true);
+      setState(() {
+        _loadingBreaks = true;
+        _breaksFailed = false;
+      });
       try {
         final breaks = await appRepository.breaksForFilm(film.filmId);
+
+        // Re-read the film after the breaks lookup. The lookup can be
+        // what writes `credits_start_min` (on a first ask), and the Film
+        // this screen was opened with was loaded before that — from the
+        // Cinemas tab, possibly long before. Without this, the credits
+        // are correct in the database and missing from the timeline.
+        // A plain row read; it never calls Gemini.
+        final fresh = await appRepository.filmDetails(film.filmId);
+
         if (!mounted) return;
-        setState(() => _breaks = breaks);
+        setState(() {
+          _breaks = breaks;
+          // Only if the person hasn't picked a different film meanwhile.
+          if (_film?.filmId == fresh.filmId) _film = fresh;
+        });
       } catch (e) {
-        // Gemini rate-limited us, or the lookup failed. The schedule is
-        // still correct and usable without safe windows — the ad block
-        // is what this screen is really for — so say what happened and
-        // carry on rather than failing the whole screen.
+        // GeminiApi has already retried and tried its fallback model, so
+        // reaching here means Gemini is genuinely unavailable for now.
+        // The schedule is still correct without safe windows — the ad
+        // block is what this screen is for — so the card says so quietly
+        // with a retry, instead of an alarming snackbar. Nothing was
+        // cached, so reopening the film later asks again by itself.
+        debugPrint('Safe breaks unavailable: $e');
         if (!mounted) return;
-        setState(() => _breaks = []);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Couldn\'t load safe breaks: $e')),
-        );
+        setState(() {
+          _breaks = [];
+          _breaksFailed = true;
+        });
       } finally {
         if (mounted) setState(() => _loadingBreaks = false);
       }
@@ -432,6 +472,27 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text('Finding safe breaks…', style: AppTypography.bodySmall),
+              ],
+            ),
+          ] else if (_breaksFailed) ...[
+            // Checked before "no breaks found": a failed lookup and a
+            // film with no safe windows look identical in the data (an
+            // empty list), but they tell a person very different things.
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.cloud_off_outlined, size: 14, color: AppColors.textTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Safe breaks aren\'t available right now. The schedule above is still correct.',
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _loadBreaks,
+                  child: Text('Try again', style: AppTypography.label.copyWith(color: AppColors.gold)),
+                ),
               ],
             ),
           ] else if (schedule.breaks.isEmpty) ...[

@@ -164,11 +164,16 @@ class SupabaseRepository implements TickedRepository {
     final film = await filmDetails(filmId);
 
     if (film.breaksAreCached) {
-      final cached = await _db.getBreaks(filmId);
+      // Keyed on the movie: every cinema listing it shares one answer.
+      final cached = await _db.getBreaks(film.movieId);
 
       // A real answer. Never expires, never re-asked.
+      //
+      // Capped on the way out, because films cached before the limit
+      // dropped to two can hold up to four rows. Trimming here fixes
+      // them on screen without a paid re-ask.
       if (cached.isNotEmpty) {
-        return cached;
+        return cached.take(GeminiApi.maxBreaks).toList();
       }
 
       // "Asked, found nothing" — honour it until it goes stale.
@@ -187,21 +192,11 @@ class SupabaseRepository implements TickedRepository {
       return const [];
     }
 
-    // Two passes. The first is strict — "don't guess about a film you
-    // don't know" — which is what makes an answer to it trustworthy.
-    // Almost every film here is unreleased or days old, so that pass
-    // usually declines; the second then asks for windows reasoned from
-    // the film's likely shape and pacing, and the answer is stored
-    // flagged as an estimate so the screen can say which it is.
-    var answer = await _gemini.getBreaksForFilm(film.title, film.durationMin);
-
-    if (answer.breaks.isEmpty) {
-      answer = await _gemini.getBreaksForFilm(
-        film.title,
-        film.durationMin,
-        estimate: true,
-      );
-    }
+    // One call. Gemini answers from the film's real scenes when it knows
+    // them and reasons from its runtime and likely pacing when it
+    // doesn't, and says which in its reply — stored as `is_estimated`
+    // so the screen can label the second kind.
+    final answer = await _gemini.getBreaksForFilm(film.title, film.durationMin);
 
     // Rows first, then the stamp. The stamp is what the next reader
     // trusts, so it must not be newer than the rows it vouches for: if
@@ -211,8 +206,8 @@ class SupabaseRepository implements TickedRepository {
     //
     // addNewBreaks replaces rather than appends, so a re-ask that now
     // has an answer cleanly overwrites the empty one.
-    await _db.addNewBreaks(filmId, answer.breaks);
-    await _db.markBreaksChecked(filmId, answer.creditsStartMin);
+    await _db.addNewBreaks(film.movieId, answer.breaks);
+    await _db.markBreaksChecked(film.movieId, answer.creditsStartMin);
 
     return answer.breaks;
   }
