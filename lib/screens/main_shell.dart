@@ -27,7 +27,7 @@ class _MainShellState extends State<MainShell> {
   int _jumpSeq = 0;
 
   static const _tabs = [
-    _Tab(icon: Icons.local_movies_outlined, activeIcon: Icons.home, label: 'Home'),
+    _Tab(icon: Icons.home_outlined, activeIcon: Icons.home, label: 'Home'),
     _Tab(icon: Icons.theaters_outlined, activeIcon: Icons.theaters, label: 'Cinemas'),
     _Tab(icon: Icons.person_outline, activeIcon: Icons.person, label: 'Profile'),
   ];

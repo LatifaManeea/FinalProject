@@ -109,20 +109,28 @@ class Film {
     'muvi': 'https://www.muvicinemas.com/en/movies/',
     'cinehouse': 'https://www.cinehousecinema.com/show/',
     'scene': 'https://www.scenecinemas.sa/movies/',
-    // 'reel': 'https://.../' - no confirmed per-film deep link found; see reel_scraper.py's docstring.
+    // 'reel': no confirmed per-film deep link; see reel_scraper.py's docstring.
   };
 
-  /// The cinema's own page for this film, or null when the film was
-  /// scraped from a site with no template on record — in which case no
+  /// For chains with no per-film page on record: their own showtimes page,
+  /// where the film can still be found and booked. Only real pages go
+  /// here — Reel's is the one reel_scraper.py watched to find its feed.
+  static const Map<String, String> _chainPageBySource = {
+    'reel': 'https://www.reelcinemas.com/en-sa/showtime',
+  };
+
+  /// The cinema's own page for this film; failing that, the chain's
+  /// showtimes page; or null when neither is on record — in which case no
   /// link is shown rather than a guessed one.
   Uri? get bookingUrl {
     final base = _filmPageBySource[source];
     final slug = sourceSlug;
 
-    if (base == null || slug == null || slug.isEmpty) {
-      return null;
+    if (base != null && slug != null && slug.isNotEmpty) {
+      return Uri.parse('$base$slug');
     }
-    return Uri.parse('$base$slug');
+    final chainPage = _chainPageBySource[source];
+    return chainPage == null ? null : Uri.parse(chainPage);
   }
 
   /// Two rows for the same `film_id` are the same film, whichever
