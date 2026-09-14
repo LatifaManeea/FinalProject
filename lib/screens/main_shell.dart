@@ -17,14 +17,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  static const _cinemasTab = 1;
-
   int _index = 0;
-
-  /// Home's chips ask the Cinemas tab to scroll to one chain; the shell
-  /// owns the channel because it owns which tab is showing.
-  final ValueNotifier<CinemaJumpRequest?> _jumpTo = ValueNotifier(null);
-  int _jumpSeq = 0;
 
   static const _tabs = [
     _Tab(icon: Icons.home_outlined, activeIcon: Icons.home, label: 'Home'),
@@ -33,25 +26,14 @@ class _MainShellState extends State<MainShell> {
   ];
 
   @override
-  void dispose() {
-    _jumpTo.dispose();
-    super.dispose();
-  }
-
-  void _browseCinema(String cinemaName) {
-    setState(() => _index = _cinemasTab);
-    _jumpTo.value = CinemaJumpRequest(cinemaName, _jumpSeq++);
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: IndexedStack(
         index: _index,
         children: [
-          HomeScreen(onBrowseCinema: _browseCinema),
-          CinemasScreen(jumpTo: _jumpTo),
+          const HomeScreen(),
+          const CinemasScreen(),
           const ProfileScreen(),
         ],
       ),

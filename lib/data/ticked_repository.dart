@@ -5,6 +5,7 @@ import '../models/film.dart';
 import '../models/film_break.dart';
 import '../models/schedule.dart';
 import '../models/showtime.dart';
+import '../models/upcoming_showtime.dart';
 import '../models/yearly_recap.dart';
 
 /// The frozen interface contract from the proposal's two-person work
@@ -55,6 +56,11 @@ abstract class TickedRepository {
   /// the scraper's service-role key — see Database.getShowtimesForFilm
   /// and scripts/sync_to_supabase.py).
   Future<List<Showtime>> showtimesForFilm(int filmId);
+
+  /// The soonest showtimes across every chain and branch, right now,
+  /// film and branch already resolved — for the Home screen's
+  /// "Starting Soon" row. See Database.getStartingSoon.
+  Future<List<UpcomingShowtime>> startingSoon();
 
   // ---- Attendance -----------------------------------------------------------
   Future<int> recordAttendance(Schedule schedule);

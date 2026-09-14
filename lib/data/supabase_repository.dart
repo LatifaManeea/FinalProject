@@ -5,6 +5,7 @@ import '../models/film.dart';
 import '../models/film_break.dart';
 import '../models/schedule.dart';
 import '../models/showtime.dart';
+import '../models/upcoming_showtime.dart';
 import '../models/yearly_recap.dart';
 import '../services/database.dart';
 import '../services/gemini_api.dart';
@@ -220,6 +221,9 @@ class SupabaseRepository implements TickedRepository {
 
   @override
   Future<List<Showtime>> showtimesForFilm(int filmId) => _db.getShowtimesForFilm(filmId);
+
+  @override
+  Future<List<UpcomingShowtime>> startingSoon() => _db.getStartingSoon();
 
   // ---- Attendance -----------------------------------------------------------
 

@@ -7,6 +7,7 @@ import '../models/cinema.dart';
 import '../models/film.dart';
 import '../models/film_break.dart';
 import '../models/showtime.dart';
+import '../models/upcoming_showtime.dart';
 import '../models/yearly_recap.dart';
 
 /// Everything the app asks of Supabase: auth, and the seven tables.
@@ -379,6 +380,46 @@ class Database {
       allShowtimes.add(Showtime.fromJson(element));
     }
     return allShowtimes;
+  }
+
+  /// The soonest showtimes across every chain and branch, film and
+  /// branch already resolved — for the Home screen'''s "Starting Soon"
+  /// row. Unlike [getFilmsBySource], this one DOES join through to
+  /// `branches`: Home wants the chain and branch name to show next to
+  /// each time, not just which chain a film came from, and a branch
+  /// with no `source`/`source_code` filled in yet simply has no
+  /// showtimes to join against, so it never appears here rather than
+  /// appearing with a blank branch name.
+  ///
+  /// Only showtimes still ahead of now are returned - nothing here
+  /// tells someone to run for a screening that already started.
+  Future<List<UpcomingShowtime>> getStartingSoon({int limit = 12}) async {
+    // `order()` on this client defaults to ascending: false (newest/latest
+    // first) - without `ascending: true` this was returning the LATEST
+    // showtimes instead of the soonest ones, which is why the Home screen
+    // was showing a showtime days away as if it were "starting soon".
+    //
+    // We also fetch more rows than we need and keep only the first (i.e.
+    // earliest, since the query is ascending) showtime per film, so one
+    // popular movie with many showtimes right now can't fill the whole
+    // section - the list stays one row per film, soonest first.
+    final data = await supabase
+        .from("showtimes")
+        .select("*, films(*), branches(*)")
+        .gte("show_time", DateTime.now().toUtc().toIso8601String())
+        .order("show_time", ascending: true)
+        .limit(limit * 4);
+
+    final upcoming = <UpcomingShowtime>[];
+    final seenFilmIds = <int>{};
+
+    for (var element in data) {
+      final showtime = UpcomingShowtime.fromJson(element);
+      if (!seenFilmIds.add(showtime.filmId)) continue;
+      upcoming.add(showtime);
+      if (upcoming.length >= limit) break;
+    }
+    return upcoming;
   }
 
   /// Every film scraped from one chain's own site — the Cinemas tab's
