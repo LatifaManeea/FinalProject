@@ -29,12 +29,19 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
   Uint8List? _photo;
   bool _isParsing = false;
 
+  /// Why the last scan failed, shown over the photo until a new photo is
+  /// picked or another scan starts. Null when there's nothing to say.
+  String? _scanError;
+
   Future<void> _pick(ImageSource source) async {
     try {
       final picked = await _picker.pickImage(source: source, maxWidth: 2000, imageQuality: 90);
       if (picked == null) return;
       final bytes = await picked.readAsBytes();
-      setState(() => _photo = bytes);
+      setState(() {
+        _photo = bytes;
+        _scanError = null;
+      });
     } catch (e) {
       if (!mounted) return;
       final isCamera = source == ImageSource.camera;
@@ -54,7 +61,10 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
     final photo = _photo;
     if (photo == null) return;
 
-    setState(() => _isParsing = true);
+    setState(() {
+      _isParsing = true;
+      _scanError = null;
+    });
     try {
       final parsed = await appTicketOcrService.parseTicketPhoto(photo);
       if (!mounted) return;
@@ -93,17 +103,7 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
   }
 
   void _showScanFailed(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        action: SnackBarAction(
-          label: 'Enter manually',
-          textColor: AppColors.gold,
-          onPressed: _enterManually,
-        ),
-        duration: const Duration(seconds: 6),
-      ),
-    );
+    setState(() => _scanError = message);
   }
 
   void _enterManually() {
@@ -156,7 +156,14 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
                                       borderRadius: BorderRadius.circular(20),
                                       child: Image.memory(_photo!, fit: BoxFit.cover),
                                     ),
-                                    if (_isParsing) const _ParsingOverlay(),
+                                    AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 220),
+                                      child: _isParsing
+                                          ? const _ParsingOverlay()
+                                          : _scanError != null
+                                              ? _ScanFailedOverlay(message: _scanError!)
+                                              : const SizedBox.shrink(),
+                                    ),
                                   ],
                                 ),
                         ),
@@ -182,21 +189,40 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
                         ],
                       ),
                       const SizedBox(height: 18),
-                      TickedPrimaryButton(
-                        label: 'Use this photo',
-                        isLoading: _isParsing,
-                        onPressed: _photo == null ? null : _useThisPhoto,
-                      ),
-                      const SizedBox(height: 14),
-                      Center(
-                        child: TextButton(
-                          onPressed: _isParsing ? null : _enterManually,
-                          child: Text(
-                            'Enter details manually instead',
-                            style: AppTypography.label.copyWith(color: AppColors.textSecondary),
+                      // After a failed scan, manual entry becomes the main
+                      // action and retrying the same photo drops to the link.
+                      if (_scanError == null) ...[
+                        TickedPrimaryButton(
+                          label: 'Use this photo',
+                          isLoading: _isParsing,
+                          onPressed: _photo == null ? null : _useThisPhoto,
+                        ),
+                        const SizedBox(height: 14),
+                        Center(
+                          child: TextButton(
+                            onPressed: _isParsing ? null : _enterManually,
+                            child: Text(
+                              'Enter details manually instead',
+                              style: AppTypography.label.copyWith(color: AppColors.textSecondary),
+                            ),
                           ),
                         ),
-                      ),
+                      ] else ...[
+                        TickedPrimaryButton(
+                          label: 'Enter details manually',
+                          onPressed: _enterManually,
+                        ),
+                        const SizedBox(height: 14),
+                        Center(
+                          child: TextButton(
+                            onPressed: _useThisPhoto,
+                            child: Text(
+                              'Try this photo again',
+                              style: AppTypography.label.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -239,6 +265,64 @@ class _ParsingOverlay extends StatelessWidget {
           const SizedBox(height: 14),
           Text('Reading your ticket…', style: AppTypography.bodyMedium.copyWith(color: AppColors.textPrimary)),
         ],
+      ),
+    );
+  }
+}
+
+/// Sits over the photo when a scan fails, so the reason reads in place —
+/// on the photo it's about — instead of a stock snackbar covering the
+/// buttons.
+class _ScanFailedOverlay extends StatelessWidget {
+  const _ScanFailedOverlay({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        color: AppColors.bg.withOpacity(0.72),
+        alignment: Alignment.bottomCenter,
+        padding: const EdgeInsets.all(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          decoration: BoxDecoration(
+            color: AppColors.errorSurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.error.withOpacity(0.4)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.error_outline, size: 20, color: AppColors.error),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Couldn\'t read this photo',
+                      style: AppTypography.label.copyWith(color: AppColors.textPrimary),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary, height: 1.35),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pick another photo from Library or Camera below.',
+                style: AppTypography.bodySmall.copyWith(color: AppColors.textTertiary),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
