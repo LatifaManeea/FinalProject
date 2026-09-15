@@ -1,18 +1,17 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../constants/app_colors.dart';
 import '../../constants/app_typography.dart';
-import '../../data/app_repository.dart';
 import '../../data/ticket_ocr_service.dart';
 import '../../widgets/ticked_button.dart';
 import '../../widgets/vignette_backdrop.dart';
 import '../schedule/schedule_card_screen.dart';
 
 /// Proposal screen 6 — a ticket photo chosen from the library or taken
-/// on the spot, with an OCR pass over the detected text. Working from
+/// on the spot, read by Gemini vision (see GeminiTicketOcrService). Working from
 /// a still photo rather than a live camera feed removes focus, motion
 /// blur and frame-selection failure entirely (Challenge 1) — you just
 /// get another photo if the first one's bad.
@@ -25,14 +24,17 @@ class UploadTicketScreen extends StatefulWidget {
 
 class _UploadTicketScreenState extends State<UploadTicketScreen> {
   final _picker = ImagePicker();
-  File? _photo;
+  /// Bytes rather than a File: `dart:io` files don't exist on Flutter
+  /// web, and bytes work the same on every platform.
+  Uint8List? _photo;
   bool _isParsing = false;
 
   Future<void> _pick(ImageSource source) async {
     try {
       final picked = await _picker.pickImage(source: source, maxWidth: 2000, imageQuality: 90);
       if (picked == null) return;
-      setState(() => _photo = File(picked.path));
+      final bytes = await picked.readAsBytes();
+      setState(() => _photo = bytes);
     } catch (e) {
       if (!mounted) return;
       final isCamera = source == ImageSource.camera;
@@ -54,38 +56,54 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
 
     setState(() => _isParsing = true);
     try {
-      final parsed = await appTicketOcrService.parseTicketPhoto(photo.path);
-      // Null when the title read off the ticket matches nothing in
-      // `films` — the Schedule Card opens on the film picker instead of
-      // being handed a film that isn't the one on the ticket.
-      final film = await appRepository.matchFilmByTitle(parsed.filmTitleGuess ?? '');
+      final parsed = await appTicketOcrService.parseTicketPhoto(photo);
       if (!mounted) return;
+
+      // Read as a ticket but nothing on it matched — an empty card
+      // marked "filled in from your photo" would be misleading.
+      if (parsed.isEmpty) {
+        _showScanFailed('Couldn\'t read the cinema, film or time from that photo. Try a clearer one, or enter the details manually.');
+        return;
+      }
+
+      // Whatever wasn't read or didn't match is left empty on the card
+      // for the person to pick — see the banner there.
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ScheduleCardScreen(
-            preselectedFilm: film,
-            preselectedCinemaName: parsed.cinemaNameGuess,
-            initialTicketTime: parsed.ticketTimeGuess,
-            ocrConfidence: parsed.confidence,
+            preselectedFilm: parsed.film,
+            preselectedCinemaName: parsed.cinemaName,
+            preselectedBranchId: parsed.branch?.id,
+            initialTicketTime: parsed.ticketTime,
+            fromTicketPhoto: true,
+            titleOnTicket: parsed.titleOnTicket,
           ),
         ),
       );
-    } on TicketOcrUnavailable catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$e'),
-          action: SnackBarAction(
-            label: 'Enter manually',
-            textColor: AppColors.gold,
-            onPressed: _enterManually,
-          ),
-          duration: const Duration(seconds: 6),
-        ),
-      );
+    } on TicketScanFailed catch (e) {
+      if (mounted) _showScanFailed(e.message);
+    } catch (e) {
+      // Anything unexpected (an unreadable file, say) still ends at
+      // manual entry, never a spinner or a crash.
+      debugPrint('Ticket scan failed: $e');
+      if (mounted) _showScanFailed('Something went wrong reading that photo.');
     } finally {
       if (mounted) setState(() => _isParsing = false);
     }
+  }
+
+  void _showScanFailed(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'Enter manually',
+          textColor: AppColors.gold,
+          onPressed: _enterManually,
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   void _enterManually() {
@@ -136,7 +154,7 @@ class _UploadTicketScreenState extends State<UploadTicketScreen> {
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(20),
-                                      child: Image.file(_photo!, fit: BoxFit.cover),
+                                      child: Image.memory(_photo!, fit: BoxFit.cover),
                                     ),
                                     if (_isParsing) const _ParsingOverlay(),
                                   ],

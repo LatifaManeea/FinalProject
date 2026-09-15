@@ -28,14 +28,24 @@ class ScheduleCardScreen extends StatefulWidget {
     super.key,
     this.preselectedFilm,
     this.preselectedCinemaName,
+    this.preselectedBranchId,
     this.initialTicketTime,
-    this.ocrConfidence,
+    this.fromTicketPhoto = false,
+    this.titleOnTicket,
   });
 
   final Film? preselectedFilm;
   final String? preselectedCinemaName;
+  final int? preselectedBranchId;
   final DateTime? initialTicketTime;
-  final double? ocrConfidence;
+
+  /// Opened from a scanned ticket — shows a banner saying so, and naming
+  /// whatever couldn't be read so the person knows what to fill in.
+  final bool fromTicketPhoto;
+
+  /// The film title as printed on a scanned ticket, for saying which
+  /// film wasn't found in the cinema's listings.
+  final String? titleOnTicket;
 
   @override
   State<ScheduleCardScreen> createState() => _ScheduleCardScreenState();
@@ -50,6 +60,11 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
 
   /// True while a chosen cinema's branches and films are loading.
   bool _loadingOptions = false;
+
+  /// False until the preselected cinema, branch and film have been
+  /// checked — the ticket banner waits for it, so it doesn't briefly
+  /// claim everything is missing.
+  bool _preselectionChecked = false;
 
   Film? _film;
   String? _cinemaName;
@@ -96,13 +111,14 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     // dropped along with the film, and the person starts from the cinema.
     final cinemaName = _cinemaName;
     if (cinemaName != null && cinemas.any((c) => c.name == cinemaName)) {
-      await _onCinemaChanged(cinemaName, keepFilm: true);
+      await _onCinemaChanged(cinemaName, keepFilm: true, keepBranchId: widget.preselectedBranchId);
     } else {
       setState(() {
         _cinemaName = null;
         _film = null;
       });
     }
+    if (mounted) setState(() => _preselectionChecked = true);
   }
 
   /// Order is forced: cinema, then branch, then a film from that cinema's
@@ -110,7 +126,8 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
   ///
   /// [keepFilm] keeps a preselected film when it really is one of this
   /// cinema's listings (opened from the Cinemas tab or a ticket photo).
-  Future<void> _onCinemaChanged(String? name, {bool keepFilm = false}) async {
+  /// [keepBranchId] does the same for a branch read off a ticket.
+  Future<void> _onCinemaChanged(String? name, {bool keepFilm = false, int? keepBranchId}) async {
     if (name == null) return;
     final previousFilm = _film;
     setState(() {
@@ -130,9 +147,13 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     if (!mounted || _cinemaName != name) return;
 
     final keptFilm = keepFilm && previousFilm != null && films.contains(previousFilm) ? previousFilm : null;
+    // The dropdown needs the very instance from its own items, so look
+    // the branch up in this list rather than keep one passed in.
+    final keptBranch = branches.where((b) => b.id == keepBranchId).firstOrNull;
     setState(() {
       _branchOptions = branches;
       _filmOptions = films;
+      _branch = keptBranch;
       _film = keptFilm;
       _loadingOptions = false;
     });
@@ -229,11 +250,16 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
   }
 
   Future<void> _pickTicketTime() async {
+    // Widened to include the current ticket time: a scanned ticket can
+    // be older than yesterday, and showDatePicker throws when its
+    // initial date falls outside the range.
+    final earliest = DateTime.now().subtract(const Duration(days: 1));
+    final latest = DateTime.now().add(const Duration(days: 60));
     final date = await showDatePicker(
       context: context,
       initialDate: _ticketTime,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 60)),
+      firstDate: _ticketTime.isBefore(earliest) ? _ticketTime : earliest,
+      lastDate: _ticketTime.isAfter(latest) ? _ticketTime : latest,
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_ticketTime));
@@ -359,8 +385,8 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.ocrConfidence != null) ...[
-          _OcrHintBanner(confidence: widget.ocrConfidence!),
+        if (widget.fromTicketPhoto && _preselectionChecked) ...[
+          _OcrHintBanner(message: _ticketBannerMessage()),
           const SizedBox(height: 18),
         ],
         Text('CINEMA', style: AppTypography.overline),
@@ -388,6 +414,29 @@ class _ScheduleCardScreenState extends State<ScheduleCardScreen> {
         ],
       ],
     );
+  }
+
+  /// Names what the ticket scan left empty, from the card's current
+  /// state — so once the person fills a field in, it drops out.
+  String _ticketBannerMessage() {
+    final missing = [
+      if (_cinemaName == null) 'cinema',
+      if (_branch == null) 'branch',
+      if (_film == null) 'film',
+      if (widget.initialTicketTime == null) 'ticket time',
+    ];
+    if (missing.isEmpty) {
+      return 'Filled in from your ticket photo — double-check before starting.';
+    }
+
+    final list = missing.length == 1
+        ? missing.first
+        : '${missing.sublist(0, missing.length - 1).join(', ')} and ${missing.last}';
+    final notListed = _film == null && _cinemaName != null && widget.titleOnTicket != null
+        ? ' "${widget.titleOnTicket}" isn\'t in $_cinemaName\'s listings.'
+        : '';
+    return 'Filled in from your ticket photo, but the $list couldn\'t be read — '
+        'please fill ${missing.length == 1 ? 'it' : 'them'} in below.$notListed';
   }
 
   Widget _buildCinemaDropdown() {
@@ -725,9 +774,9 @@ class _BuyTicketLink extends StatelessWidget {
 }
 
 class _OcrHintBanner extends StatelessWidget {
-  const _OcrHintBanner({required this.confidence});
+  const _OcrHintBanner({required this.message});
 
-  final double confidence;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -744,7 +793,7 @@ class _OcrHintBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Filled in from your ticket photo — double-check before starting.',
+              message,
               style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
             ),
           ),

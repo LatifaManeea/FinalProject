@@ -20,6 +20,29 @@ class BreaksUnavailable implements Exception {
   String toString() => message;
 }
 
+enum GeminiFailureKind {
+  /// No connection at all.
+  offline,
+
+  /// Google refused the request itself — a bad key, a bad option.
+  rejected,
+
+  /// Every model was overloaded, too slow, or out of quota.
+  busy,
+}
+
+/// Why [GeminiApi.generate] got no answer. [detail] is Google's own
+/// reason where it gave one, for the caller's message.
+class GeminiFailure implements Exception {
+  const GeminiFailure(this.kind, this.detail);
+
+  final GeminiFailureKind kind;
+  final String detail;
+
+  @override
+  String toString() => "GeminiFailure(${kind.name}): $detail";
+}
+
 /// What Gemini answered about one film: where the credits start, and the
 /// windows where nothing plot-critical happens.
 ///
@@ -71,6 +94,28 @@ class GeminiApi {
     int? year,
   }) async {
     final prompt = buildPrompt(title, durationMin, year: year);
+
+    try {
+      final text = await generate(prompt, thinkingLevel: "high");
+      return readAnswer(text, durationMin);
+    } on GeminiFailure catch (failure) {
+      throw BreaksUnavailable(switch (failure.kind) {
+        GeminiFailureKind.offline =>
+          "No internet connection — safe breaks will load once you're back online.",
+        GeminiFailureKind.rejected => "Could not load film breaks: ${failure.detail}",
+        GeminiFailureKind.busy =>
+          "Gemini is busy right now — safe breaks couldn't be loaded. (${failure.detail})",
+      });
+    }
+  }
+
+  /// One answer from Gemini as plain text, whatever it was asked —
+  /// shared by the breaks lookup and the ticket reader so both absorb
+  /// Google's overloads and quota limits the same way. [input] is either
+  /// a prompt string or a list of content parts (text plus an image).
+  ///
+  /// Throws [GeminiFailure]; each caller words it for its own screen.
+  Future<String> generate(Object input, {required String thinkingLevel}) async {
     String lastReason = "";
 
     // Models in order, each tried a couple of times. Google's servers
@@ -87,21 +132,19 @@ class GeminiApi {
 
         final http.Response response;
         try {
-          response = await _post(model, prompt).timeout(requestTimeout);
+          response = await _post(model, input, thinkingLevel).timeout(requestTimeout);
         } on TimeoutException {
           lastReason = "$model took too long to answer";
           continue; // treat like overload: retry, then fall back
         } on http.ClientException {
           // No connection. Retrying or switching model can't fix that.
-          throw const BreaksUnavailable(
-            "No internet connection — safe breaks will load once you're back online.",
-          );
+          throw const GeminiFailure(GeminiFailureKind.offline, "no connection");
         }
 
         final status = response.statusCode;
 
         if (status == 200) {
-          return readAnswer(readText(jsonDecode(response.body)), durationMin);
+          return readText(jsonDecode(response.body));
         }
 
         if (status == 429) {
@@ -119,15 +162,11 @@ class GeminiApi {
         // 400/401/403/404: the request itself is wrong (a bad key, an
         // option the model rejects). Every retry would fail the same way
         // and spend a request doing it, so stop here.
-        throw BreaksUnavailable(
-          "Could not load film breaks: ${_googleReason(response.body, status)}",
-        );
+        throw GeminiFailure(GeminiFailureKind.rejected, _googleReason(response.body, status));
       }
     }
 
-    throw BreaksUnavailable(
-      "Gemini is busy right now — safe breaks couldn't be loaded. ($lastReason)",
-    );
+    throw GeminiFailure(GeminiFailureKind.busy, lastReason);
   }
 
   /// Tried in order. Flash Lite rather than Flash, for the free-tier
@@ -151,16 +190,16 @@ class GeminiApi {
   /// message, never a spinner that never stops.
   static const Duration requestTimeout = Duration(seconds: 45);
 
-  Future<http.Response> _post(String model, String prompt) {
+  Future<http.Response> _post(String model, Object input, String thinkingLevel) {
     final body = {
       "model": model,
-      "input": prompt,
+      "input": input,
       // Flash Lite has thinking OFF by default, so it was answering with
       // no reasoning step at all — quick, but overconfident: it marked a
       // templated guess for The Odyssey as known. "high" makes it reason
-      // before committing. Still one request per film; it costs tokens
-      // (250K a minute available) and seconds, not daily quota.
-      "generation_config": {"thinking_level": "high"},
+      // before committing. Still one request; it costs tokens (250K a
+      // minute available) and seconds, not daily quota.
+      "generation_config": {"thinking_level": thinkingLevel},
     };
 
     return http.post(
