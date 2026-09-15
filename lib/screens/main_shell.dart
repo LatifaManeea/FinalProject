@@ -7,8 +7,8 @@ import 'home/home_screen.dart';
 import 'profile/profile_screen.dart';
 
 /// The signed-in app shell — Home, Cinemas, Profile on a bottom nav.
-/// History no longer has a tab of its own: it opens as the top half of
-/// Settings, which is reached from Profile along with About Us.
+/// History has no tab of its own: it, Settings and About Us are all
+/// reached from buttons on Profile instead.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 

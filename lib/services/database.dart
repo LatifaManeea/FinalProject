@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/app_user.dart';
@@ -201,6 +203,39 @@ class Database {
       "display_name": displayName,
       "avatar_url": avatarUrl,
     }).eq("profile_id", userId);
+  }
+
+  /// Uploads a picked profile photo to the `avatars` storage bucket and
+  /// returns its public URL - [updateProfile] still has to be called
+  /// separately to actually attach that URL to the profile row, same
+  /// as with the display name.
+  ///
+  /// Requires a public `avatars` bucket to already exist in the
+  /// Supabase project (Storage -> New bucket, name it exactly
+  /// "avatars", mark it public) with storage.objects policies letting
+  /// a signed-in user read anything in it and write only inside a
+  /// folder named after their own uid - the upload path below
+  /// ($userId/avatar.ext) is written to match a policy shaped like:
+  ///   using/with check: bucket_id = 'avatars'
+  ///     and auth.uid()::text = (storage.foldername(name))[1]
+  /// Without that bucket and those policies this throws a
+  /// StorageException, which the caller shows as a plain error rather
+  /// than crashing.
+  Future<String> uploadAvatar(String userId, File file) async {
+    final ext = file.path.contains('.') ? file.path.split('.').last.toLowerCase() : 'jpg';
+    final path = '$userId/avatar.$ext';
+
+    await supabase.storage.from('avatars').upload(
+          path,
+          file,
+          fileOptions: const FileOptions(upsert: true),
+        );
+
+    // Cache-busted so the newly uploaded photo shows immediately - an
+    // upsert to the same path would otherwise keep the same URL a
+    // NetworkImage may have already cached from the old photo.
+    final publicUrl = supabase.storage.from('avatars').getPublicUrl(path);
+    return '$publicUrl?updated=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   // ---- Cinemas and branches ---------------------------------------------
